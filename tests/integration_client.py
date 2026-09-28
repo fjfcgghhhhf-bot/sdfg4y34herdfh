@@ -1,5 +1,6 @@
 """Реальный HTTP + Qt, фиксированное демо; системные действия заменены."""
 import os
+import json
 from pathlib import Path
 import queue
 import tempfile
@@ -15,6 +16,7 @@ from protocol import EVENTS,DEFAULT_SETTINGS
 from client_store import Store
 import debuff_roulette_advanced as engine
 from remote_window import RemoteWindow
+from remote_ai import RemoteAIChallenge
 
 class Quiet(WSGIRequestHandler):
     def log_request(self,*_): pass
@@ -63,6 +65,14 @@ def main():
             assert w.demo_check.isChecked(), 'Сайт не может отключить локальный --demo'
             send({'action':'spin'}); until(lambda:w.spin is not None)
             w.grab().save(str(ROOT.parent/'work'/'remote-client.png'))
+            reply={'choices':[{'finish_reason':'stop','message':{'content':json.dumps({
+                'reply_ru':'Убедите меня оставить игру открытой.','close_confidence':80})}}]}
+            with patch('ai_gateway.respond',return_value=reply):
+                chat=RemoteAIChallenge(w.link,'gemini'); chat.start()
+                until(lambda:chat.score is not None)
+                assert chat.score==80 and chat.deadline is not None
+                chat.stop(); assert chat.done
+                chat.deleteLater()
             # Dropping the link cancels an in-progress spin and timer.
             send({'action':'start'}); until(lambda:w.running)
             http.shutdown()
@@ -74,6 +84,6 @@ def main():
         store.save({'server':'https://example.invalid','username':'Тест','token':secret})
         assert secret not in store.path.read_text() and store.load()['token']==secret
         http.server_close()
-    print('PASS HTTP enrollment, 18 events, start/stop, settings, forced demo, disconnect cleanup, DPAPI')
+    print('PASS HTTP enrollment, 18 events, start/stop, settings, forced demo, AI proxy reply, disconnect cleanup, DPAPI')
 
 if __name__=='__main__': main()
