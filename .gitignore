@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+data/
+*.sqlite*
+*.exe
+*.zip
+*.spec
+build/
+dist/
+.venv/
+.build-venv/
+client-config.json
+test-artifacts/
