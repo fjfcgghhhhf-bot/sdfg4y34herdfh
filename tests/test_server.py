@@ -41,6 +41,24 @@ class ServerTests(unittest.TestCase):
         code=self.post('/api/admin/invite',{}).json['code']
         self.assertEqual(c.post('/api/enroll',json={'username':'игрок','code':code}).status_code,409)
         self.assertEqual(self.admin.post('/api/admin/invite',json={},headers={**self.headers,'Origin':'https://evil.invalid'}).status_code,403)
+    def test_private_browser_form_origin_and_csrf(self):
+        c=self.app.test_client(); page=c.get('/login')
+        self.assertEqual(page.headers['Referrer-Policy'],'same-origin')
+        with c.session_transaction() as sess: csrf=sess['csrf']
+        # Reproduce the observed browser's Origin:null with its own form token.
+        result=c.post('/login',headers={'Origin':'null'},data={'csrf':csrf,'password':'test-password-123456'})
+        self.assertEqual(result.status_code,302)
+        with c.session_transaction() as sess: token=sess['csrf']
+        good={'Origin':'null','X-CSRF-Token':token}
+        self.assertEqual(c.post('/api/admin/invite',headers=good,json={}).status_code,200)
+        self.assertEqual(c.post('/api/admin/invite',headers={'Origin':'null'},json={}).status_code,403)
+        self.assertEqual(c.post('/api/admin/invite',headers={**good,'Origin':'https://evil.invalid'},json={}).status_code,403)
+        fresh=self.app.test_client()
+        bad=fresh.post('/login',headers={'Origin':'null'},data={'csrf':'!','password':'test-password-123456'})
+        self.assertEqual(bad.status_code,403)
+        self.assertTrue(bad.content_type.startswith('text/html'))
+        with fresh.session_transaction() as sess: self.assertFalse(sess.get('admin',False))
+        self.assertEqual(fresh.post('/api/enroll',headers=good,json={'username':'Тест','code':'bad'}).status_code,403)
     def test_all_18_events_exact_targets_and_ack(self):
         a,ha,sa,aid,_=self.enroll('Первый'); b,hb,sb,bid,_=self.enroll('Второй')
         for event in EVENTS:

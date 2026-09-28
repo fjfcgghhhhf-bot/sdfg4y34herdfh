@@ -80,7 +80,10 @@ def create_app(config=None):
     def audit(text):
         db().execute('INSERT INTO audit(created,text) VALUES (?,?)',(time.time(),text[:300]))
         db().execute('DELETE FROM audit WHERE id NOT IN (SELECT id FROM audit ORDER BY id DESC LIMIT 300)')
-    def csrf_ok(): return secrets.compare_digest(str(session.get('csrf','!')),request.headers.get('X-CSRF-Token','') or request.form.get('csrf',''))
+    def csrf_ok():
+        expected=session.get('csrf')
+        provided=request.headers.get('X-CSRF-Token','') or request.form.get('csrf','')
+        return isinstance(expected,str) and bool(expected) and secrets.compare_digest(expected,provided)
     def admin(fn):
         @functools.wraps(fn)
         def wrapped(*a,**kw):
@@ -100,14 +103,25 @@ def create_app(config=None):
     @app.before_request
     def guard():
         if request.method not in ('GET','HEAD','OPTIONS') and request.headers.get('Origin'):
-            if request.headers['Origin'].rstrip('/')!=request.host_url.rstrip('/'):
+            origin=request.headers['Origin']
+            # Privacy policies and sandboxed browsers can send Origin:null even
+            # for our own form. Only session-bound, CSRF-protected panel routes
+            # may use this fallback. Never allow an explicit foreign origin.
+            panel_route=(request.endpoint in ('login','logout') or request.path.startswith('/api/admin/'))
+            opaque_with_csrf=origin=='null' and panel_route and csrf_ok()
+            if origin.rstrip('/')!=request.host_url.rstrip('/') and not opaque_with_csrf:
+                if request.endpoint=='login':
+                    session.setdefault('csrf',secrets.token_urlsafe(32))
+                    return render_template('login.html',error='Обновите страницу входа и повторите попытку.'),403
                 return fail('Другой источник запроса запрещён.',403)
     @app.after_request
     def headers(response):
         response.headers['Cache-Control']='no-store'
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['X-Frame-Options']='DENY'
-        response.headers['Referrer-Policy']='no-referrer'
+        # no-referrer can suppress Origin on form POSTs in some browsers.
+        # Same-origin retains it for our forms without leaking it to other sites.
+        response.headers['Referrer-Policy']='same-origin'
         response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
         if request.is_secure: response.headers['Strict-Transport-Security']='max-age=31536000'
         return response
