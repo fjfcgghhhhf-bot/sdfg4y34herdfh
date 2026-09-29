@@ -40,12 +40,16 @@ class Version2Tests(unittest.TestCase):
             self.assertEqual(r.status_code,200,r.json); self.assertEqual(r.json['result'],expect); self.assertEqual(r.json['special'],special)
             generator.assert_called_once_with(50)
             if expect=='immune':
-                self.assertGreater(self.poll(c,h,s).json['immunity'],606)
+                # 7 с вращения + 0.6 с заливки + 2 с результата + 10 мин защиты.
+                self.assertAlmostEqual(r.json['immunity'],609.6)
+                self.assertGreater(self.poll(c,h,s).json['immunity'],609)
                 for action in ('start','spin','preview_video','event'):
                     payload={'action':action}
                     if action=='event': payload['event']='kill'
                     self.assertEqual(self.post('/api/admin/command',{'targets':[cid],'command':payload}).status_code,409)
                 self.assertEqual(self.post('/api/admin/command',{'targets':[cid],'command':{'action':'stop'}}).status_code,200)
+            else:
+                self.assertEqual(r.json['immunity'],0)
     def test_immunity_persists_reconnect_and_excludes_pairing(self):
         a,ha,sa,aid,_=self.enroll('Защищённый'); b,hb,sb,bid,_=self.enroll('Соперник')
         self.sql('UPDATE clients SET immune_until=? WHERE id=?',(time.time()+600,aid))

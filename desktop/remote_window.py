@@ -164,8 +164,8 @@ class RemoteWindow(MainWindow):
         if not self.immune(): super().start_timer()
 
     def begin_spin(self):
-        # Unbounded PvP games are never interrupted by the 120-second roulette.
-        if self.immune() or self.match or self.roll_pending: return
+        # Let matches and the upgrader's result animation finish before the next spin.
+        if self.immune() or self.match or self.roll_pending or isinstance(self.challenge,Upgrader): return
         super().begin_spin()
 
     def apply_selected(self,index,manual=False):

@@ -4,12 +4,13 @@ import time
 
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (
-    QBrush, QColor, QFont, QLinearGradient, QPainter, QPen,
+    QBrush, QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen,
     QPolygonF, QRadialGradient,
 )
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 
 from challenge_base import ChallengeWindow
+from protocol import UPGRADER_FILL_SECONDS, UPGRADER_HOLD_SECONDS
 
 
 class UpgradeWheel(QWidget):
@@ -21,6 +22,8 @@ class UpgradeWheel(QWidget):
         self.special = bool(special)
         self.chance = max(0.0, min(100.0, float(chance)))
         self.target_half_width = max(0.1, min(30.0, float(target_half_width)))
+        self.result = None
+        self.result_progress = 0.0
         self.setMinimumSize(180, 180)
 
     @staticmethod
@@ -37,50 +40,75 @@ class UpgradeWheel(QWidget):
         p.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
 
     def _emblem(self, p):
-        """Angular orange animal emblem, built from paths rather than a bitmap."""
-        orange = QLinearGradient(120, 100, 268, 303)
-        orange.setColorAt(0, QColor('#ef7a13'))
-        orange.setColorAt(.55, QColor('#c5570a'))
-        orange.setColorAt(1, QColor('#993804'))
-        p.setPen(QPen(QBrush(orange), 3.2, Qt.PenStyle.SolidLine,
-                      Qt.PenCapStyle.SquareCap, Qt.PenJoinStyle.MiterJoin))
+        """Custom bevelled R monogram: vector geometry stays sharp at any DPI."""
+        p.save()
+        orange = QLinearGradient(147, 105, 242, 224)
+        orange.setColorAt(0, QColor('#fff0a1'))
+        orange.setColorAt(.3, QColor('#ffbb35'))
+        orange.setColorAt(.65, QColor('#f0790d'))
+        orange.setColorAt(1, QColor('#aa3807'))
+        p.setPen(QPen(QColor('#ac6726'), 1.5))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        # Two broken angular shields surround the animal head.
         for points in (
-            [(121, 168), (121, 153), (132, 145)],
-            [(170, 117), (199, 101), (280, 146), (280, 192)],
-            [(183, 119), (199, 111), (270, 152), (270, 182)],
-            [(126, 225), (119, 228), (119, 241), (198, 287), (208, 280)],
-            [(136, 228), (128, 234), (199, 276), (204, 272)],
-            [(153, 240), (191, 262)],
+            [(148, 132), (136, 139), (136, 192), (153, 208)],
+            [(250, 132), (262, 139), (262, 192), (245, 208)],
         ):
             p.drawPolyline(self._polygon(points))
-
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(orange))
-        # Long ears, swept mane, pointed muzzle and a hanging angular lower jaw.
-        p.drawPolygon(self._polygon([
-            (147, 151), (139, 117), (179, 148), (166, 119),
-            (195, 138), (188, 121), (224, 153), (217, 135),
-            (249, 166), (251, 181), (268, 192), (280, 211),
-            (271, 211), (289, 235), (278, 230), (275, 241),
-            (265, 230), (252, 229), (235, 218), (237, 249),
-            (232, 245), (236, 273), (220, 279), (209, 233),
-            (197, 221), (175, 218), (169, 225), (156, 207),
-            (133, 217), (143, 199), (113, 205), (130, 188),
-            (110, 182), (131, 164),
+        mark = QPainterPath()
+        mark.setFillRule(Qt.FillRule.OddEvenFill)
+        mark.addPolygon(self._polygon([
+            (161, 110), (223, 110), (245, 130), (240, 160),
+            (220, 176), (247, 222), (215, 222), (190, 179),
+            (181, 179), (176, 222), (145, 222),
         ]))
-        # Negative-space facets keep the mark crisp behind the percentage.
-        p.setBrush(QColor('#141714'))
-        for points in (
-            [(146, 130), (153, 156), (176, 158)],
-            [(154, 164), (184, 160), (171, 176)],
-            [(192, 150), (220, 160), (229, 176), (209, 167)],
-            [(232, 183), (247, 192), (239, 195)],
-            [(197, 216), (215, 222), (223, 259), (216, 245)],
-            [(139, 204), (157, 199), (169, 212), (155, 207)],
-        ):
-            p.drawPolygon(self._polygon(points))
+        mark.closeSubpath()
+        mark.addPolygon(self._polygon([
+            (187, 134), (211, 134), (217, 140), (215, 151),
+            (207, 156), (184, 156),
+        ]))
+        mark.closeSubpath()
+        # Offset dark extrusion and thin luminous edges add depth without a font dependency.
+        p.translate(0, 4)
+        p.fillPath(mark, QColor('#542506'))
+        p.translate(0, -4)
+        p.setPen(QPen(QColor('#f9b24c'), .85))
+        p.setBrush(orange)
+        p.drawPath(mark)
+        p.setPen(QPen(QColor('#ffe5a0'), 1.6))
+        p.drawPolyline(self._polygon([(164, 114), (220, 114), (239, 131)]))
+        p.setPen(QPen(QColor('#7d300a'), 2))
+        p.drawLine(QPointF(195, 181), QPointF(217, 218))
+        p.restore()
+
+    def _result_fill(self, p, circle):
+        """A rising coloured wave covers the gauge, clipped to its circular face."""
+        if not self.result or self.result_progress <= 0:
+            return
+        progress = min(1.0, self.result_progress)
+        success = self.result in ('win', 'immune')
+        p.save()
+        clip = QPainterPath()
+        clip.addEllipse(circle)
+        p.setClipPath(clip)
+        level = circle.bottom() + 12 - (circle.height() + 24) * progress
+        wave = QPainterPath(QPointF(20, 380))
+        for x in range(20, 381, 4):
+            y = level + math.sin(x / 27 + progress * 7) * 5 * (1 - progress)
+            wave.lineTo(x, y)
+        wave.lineTo(380, 380)
+        wave.closeSubpath()
+        colour = QLinearGradient(200, 32, 200, 370)
+        colour.setColorAt(0, QColor('#42e5a0' if success else '#ff7370'))
+        colour.setColorAt(.48, QColor('#169a65' if success else '#c72d43'))
+        colour.setColorAt(1, QColor('#064633' if success else '#640e26'))
+        p.fillPath(wave, colour)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(207, 255, 226, 120) if success else QColor(255, 203, 196, 120), 2))
+        p.drawPath(wave)
+        p.setPen(QPen(QColor(223, 255, 231, round(70 * progress)), 1))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QPointF(200, 200), 117, 117)
+        p.restore()
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -161,6 +189,7 @@ class UpgradeWheel(QWidget):
         inner.setColorAt(1, QColor('#111512'))
         p.setBrush(inner)
         p.drawEllipse(center, 112, 112)
+        self._result_fill(p, circle)
         self._emblem(p)
 
         self._text(p, QRectF(159, 42, 82, 23), '100%', 14, '#525750')
@@ -171,12 +200,14 @@ class UpgradeWheel(QWidget):
 
         # A subtle text shadow preserves readability over the emblem.
         chance_text = f'{self.chance:.2f}%'
-        self._text(p, QRectF(65, 162, 272, 51), chance_text, 37, '#241607')
-        self._text(p, QRectF(64, 160, 272, 51), chance_text, 37, '#ffffff')
+        self._text(p, QRectF(65, 230, 272, 44), chance_text, 34, '#241607')
+        self._text(p, QRectF(64, 228, 272, 44), chance_text, 34, '#ffffff')
         caption = ('Без шанса' if self.chance == 0 else 'Гарантированный шанс' if self.chance == 100
                    else 'Низкий шанс' if self.chance < 35 else 'Средний шанс' if self.chance < 65
                    else 'Высокий шанс')
-        self._text(p, QRectF(77, 205, 246, 29), caption, 18, '#eee7d2')
+        if self.result:
+            caption = {'win': 'УСПЕШНО', 'loss': 'НЕУДАЧА', 'immune': 'ИММУНИТЕТ'}[self.result]
+        self._text(p, QRectF(77, 266, 246, 25), caption, 15, '#eee7d2')
 
         # Short external gold pointer. Its tip points into the selected sector.
         p.save()
@@ -205,12 +236,16 @@ class UpgradeWheel(QWidget):
 
 class Upgrader(ChallengeWindow):
     screen_height_fraction = .5
+    FILL_SECONDS = UPGRADER_FILL_SECONDS
+    RESULT_HOLD_SECONDS = UPGRADER_HOLD_SECONDS
 
     def __init__(self, roll, duration):
         super().__init__('Апгрейдер')
         self.roll = roll
-        self.duration = max(1.0, float(duration))
+        self.spin_seconds = max(1.0, float(duration))
+        self.duration = self.spin_seconds + self.FILL_SECONDS + self.RESULT_HOLD_SECONDS
         self.started = 0
+        self.result_hold_started = None
         self.setStyleSheet('''
             QWidget#root { background: #111717; border: 1px solid #58635c; }
             QLabel { color: #d6dbce; font-family: "Segoe UI"; border: none; }
@@ -247,12 +282,20 @@ class Upgrader(ChallengeWindow):
     def tick(self):
         if self.done:
             return
-        # Stop on the server angle, then hold it for 700 ms before finishing.
-        progress = max(0, min(1, (time.monotonic() - self.started) / (self.duration - .7)))
+        now = time.monotonic()
+        elapsed = max(0, now - self.started)
+        progress = min(1, elapsed / self.spin_seconds)
         target = 5 * 360 + (self.roll['angle'] - 90) % 360
         self.wheel.angle = 90 + target * (1 - (1 - progress) ** 4)
+        if progress >= 1:
+            self.wheel.result = self.roll['result']
+            self.wheel.result_progress = min(1, (elapsed - self.spin_seconds) / self.FILL_SECONDS)
+            if self.wheel.result_progress >= 1 and self.result_hold_started is None:
+                # Always give the completed fill two visible seconds, even after a slow frame.
+                self.result_hold_started = now
+                self.deadline = now + self.RESULT_HOLD_SECONDS
         self.wheel.update()
-        if self.remaining() <= 0:
+        if self.result_hold_started is not None and now - self.result_hold_started >= self.RESULT_HOLD_SECONDS:
             result = self.roll['result']
             self.finish(result, {
                 'immune': 'Попадание в «?»! Иммунитет от событий на 10 минут.',

@@ -17,6 +17,9 @@ EVENTS = [
 ]
 EVENT_IDS = {e[0] for e in EVENTS}
 PROTOCOL_VERSION=3
+UPGRADER_FILL_SECONDS = 0.6
+UPGRADER_HOLD_SECONDS = 2.0
+UPGRADER_RESULT_SECONDS = UPGRADER_FILL_SECONDS + UPGRADER_HOLD_SECONDS
 PVP_EVENTS={'chess','pong'}
 DURATION_LIMITS={e[0]:(1,3600) for e in EVENTS if e[2]}
 for _kind in ('keyboard','mouse','both','tp','window','monitor'):

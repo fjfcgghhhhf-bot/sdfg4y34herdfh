@@ -17,6 +17,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from protocol import EVENTS, DEFAULT_SETTINGS, DURATION_LIMITS, PROTOCOL_VERSION, PVP_EVENTS, command, username, settings, duration
+from protocol import UPGRADER_RESULT_SECONDS
 from matches import MatchHub
 from upgrade_rules import roll_upgrade
 
@@ -334,7 +335,7 @@ def create_app(config=None):
         if g.client['immune_until']>time.time(): return fail('Действует иммунитет.',409)
         if hub.busy(g.client['id']): return fail('Сначала завершите сетевой матч.',409)
         if not rate(('upgrade',g.client['id']),12,60): return fail('Подождите перед новым вращением.',429)
-        seconds=duration('upgrader',data.get('duration',7))
+        seconds=duration('upgrader',data.get('duration',7))+UPGRADER_RESULT_SECONDS
         roll=roll_upgrade(data.get('chance',50))
         if roll['result']=='immune':
             db().execute('UPDATE clients SET immune_until=? WHERE id=?',(time.time()+600+seconds,g.client['id']))
