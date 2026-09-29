@@ -32,11 +32,13 @@ class Version2Tests(unittest.TestCase):
         self.assertEqual(self.poll(b,hb,sb).json['match']['status'],'ended')
     def test_question_mark_independent_hit_and_immunity(self):
         c,h,s,cid,_=self.enroll('Апгрейдер')
-        for draws,expect,special in [([29,90000],'immune',True),([29,5000],'win',True),([29,200000],'loss',True),([30,90000],'win',False),([30,359999],'loss',False)]:
+        for expect,special,angle in [('immune',True,90),('win',True,20),('loss',True,220),('win',False,90),('loss',False,270)]:
             self.sql('UPDATE clients SET immune_until=0 WHERE id=?',(cid,))
-            with patch('server.secrets.randbelow',side_effect=draws):
+            roll={'result':expect,'special':special,'angle':angle,'chance':50,'target_half_width':8}
+            with patch('server.roll_upgrade',return_value=roll) as generator:
                 r=c.post('/api/client/upgrader',headers=h,json={'session_id':s,'duration':7})
             self.assertEqual(r.status_code,200,r.json); self.assertEqual(r.json['result'],expect); self.assertEqual(r.json['special'],special)
+            generator.assert_called_once_with(50)
             if expect=='immune':
                 self.assertGreater(self.poll(c,h,s).json['immunity'],606)
                 for action in ('start','spin','preview_video','event'):

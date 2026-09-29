@@ -18,6 +18,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from protocol import EVENTS, DEFAULT_SETTINGS, DURATION_LIMITS, PROTOCOL_VERSION, PVP_EVENTS, command, username, settings, duration
 from matches import MatchHub
+from upgrade_rules import roll_upgrade
 
 ONLINE_SECONDS=8
 
@@ -264,7 +265,7 @@ def create_app(config=None):
         rows=[r for r in rows if targets=='all' or r['id'] in targets]
         if not rows: return fail('Нет выбранных игроков в сети.',409)
         if payload['action']!='stop' and any(json.loads(r['status']).get('protocol',1)<PROTOCOL_VERSION for r in rows):
-            return fail('Обновите выбранным игрокам клиент до версии 2.',409)
+            return fail(f'Обновите выбранным игрокам клиент до версии {PROTOCOL_VERSION}.',409)
         if payload['action'] in ('event','start','spin','preview_video'):
             rows=[r for r in rows if r['immune_until']<=now]
             if not rows: return fail('У выбранных игроков иммунитет.',409)
@@ -334,17 +335,12 @@ def create_app(config=None):
         if hub.busy(g.client['id']): return fail('Сначала завершите сетевой матч.',409)
         if not rate(('upgrade',g.client['id']),12,60): return fail('Подождите перед новым вращением.',429)
         seconds=duration('upgrader',data.get('duration',7))
-        special=secrets.randbelow(100)<30
-        # Angle is independent of the 30% appearance roll. 0° is right,
-        # 90° is bottom; the pink target covers 78..102° (24° of 360°).
-        angle=secrets.randbelow(360000)/1000
-        hit=special and 78<=angle<102
-        result='immune' if hit else ('win' if 0<=angle<180 else 'loss')
-        if hit:
+        roll=roll_upgrade(data.get('chance',50))
+        if roll['result']=='immune':
             db().execute('UPDATE clients SET immune_until=? WHERE id=?',(time.time()+600+seconds,g.client['id']))
             db().execute("UPDATE commands SET status='expired' WHERE client_id=? AND status='queued'",(g.client['id'],))
             db().commit()
-        return jsonify(result=result,angle=angle,special=special,immunity=600+seconds if hit else 0)
+        return jsonify(**roll,immunity=600+seconds if roll['result']=='immune' else 0)
     @app.post('/api/client/ai')
     @client
     def ai():

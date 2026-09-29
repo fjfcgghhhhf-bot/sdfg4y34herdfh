@@ -114,6 +114,10 @@ class RemoteWindow(MainWindow):
                 self.capture_shop(); QTimer.singleShot(3300,self.save_config)
             elif action=='choose_video': self.choose_video()
             elif action=='choose_music': self.choose_music()
+            elif action=='music_volume':
+                self.remote_settings['music_volume']=data['volume']
+                if self.music: self.music.set_volume(data['volume']/100)
+                self.save_config(); self.note_label.setText(f"Громкость музыки: {data['volume']}%")
             elif action=='preview_video':
                 if self.demo_check.isChecked(): self.note_label.setText('Демо: предпросмотр не запускается.')
                 else: self.preview_video()
@@ -185,13 +189,15 @@ class RemoteWindow(MainWindow):
                 def failed(reason):
                     if owner is self.cancel:
                         self.roll_pending=False; self.note_label.setText(reason)
-                self.link.post('/api/client/upgrader',{'session_id':self.link.session_id,'duration':self.effect_duration('upgrader')},receive,failed)
+                chance=self.overrides.get('chance',self.remote_settings['upgrader_chance'])
+                self.link.post('/api/client/upgrader',{'session_id':self.link.session_id,'duration':self.effect_duration('upgrader'),'chance':chance},receive,failed)
             elif effect.kind=='bw':
                 self.gray.start(self.effect_duration('bw')); self.note_label.setText('Чёрно-белый фильтр. F12 — восстановить цвета и выйти.')
             else:
                 key=self.overrides.get('track',self.remote_settings['music_track'])
                 if key not in self.tracks: raise ValueError('Трек не найден на этом компьютере. Выберите другой трек на сайте.')
-                music=MusicEvent(self.tracks[key]['path'],self.effect_duration('music'),self.volume.value()/100,self)
+                volume=self.overrides.get('volume',self.remote_settings['music_volume'])
+                music=MusicEvent(self.tracks[key]['path'],self.effect_duration('music'),volume/100,self)
                 self.music=music
                 music.finished.connect(lambda reason:self.music_finished(music,reason)); music.start()
                 self.note_label.setText('Играет: '+self.tracks[key]['title'])

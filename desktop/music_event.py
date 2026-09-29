@@ -32,6 +32,9 @@ class MusicEvent(QObject):
         self.player.playbackStateChanged.connect(self.state_changed)
         self.timer=QTimer(self); self.timer.setInterval(50); self.timer.timeout.connect(self.tick)
     def start(self): self.timer.start(); self.player.play()
+    def set_volume(self,volume):
+        if not 0<=volume<=1: raise ValueError('Громкость музыки: 0–100%.')
+        self.audio.setVolume(volume)
     def state_changed(self,state):
         if state==QMediaPlayer.PlaybackState.PlayingState and self.deadline is None:
             self.deadline=time.monotonic()+self.duration

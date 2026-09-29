@@ -16,7 +16,7 @@ EVENTS = [
     ('music','Музыка',60,'Медиа'), ('bw','Чёрно-белый экран',60,'Экран'),
 ]
 EVENT_IDS = {e[0] for e in EVENTS}
-PROTOCOL_VERSION=2
+PROTOCOL_VERSION=3
 PVP_EVENTS={'chess','pong'}
 DURATION_LIMITS={e[0]:(1,3600) for e in EVENTS if e[2]}
 for _kind in ('keyboard','mouse','both','tp','window','monitor'):
@@ -24,10 +24,16 @@ for _kind in ('keyboard','mouse','both','tp','window','monitor'):
 DURATION_LIMITS['upgrader']=(3,30)
 DURATION_LIMITS['cubes']=(5,3600)
 DEFAULT_DURATIONS={e[0]:e[2] for e in EVENTS if e[2]}
-ACTIONS = {'event','start','stop','spin','settings','capture_shop','choose_video','preview_video','choose_music'}
+ACTIONS = {'event','start','stop','spin','settings','capture_shop','choose_video','preview_video','choose_music','music_volume'}
 DEFAULT_SETTINGS = {'enabled':[e[0] for e in EVENTS if e[0] not in ('kill','buy')],
                     'volume':65, 'tp_key':'T', 'shop_key':'F4', 'shop_xy':'',
-                    'demo':False, 'ai_provider':'gemini','durations':DEFAULT_DURATIONS,'music_track':'default'}
+                    'demo':False, 'ai_provider':'gemini','durations':DEFAULT_DURATIONS,'music_track':'default',
+                    'music_volume':65,'upgrader_chance':50}
+
+def percent(value,label):
+    if type(value) is not int or not 0<=value<=100:
+        raise ValueError(f'{label}: целое число от 0 до 100%.')
+    return value
 
 def duration(kind,value):
     if kind not in DURATION_LIMITS: raise ValueError('У этого события нет таймера.')
@@ -47,10 +53,13 @@ def settings(value):
     if not isinstance(value,dict) or set(value)-set(DEFAULT_SETTINGS):
         raise ValueError('Неизвестные настройки.')
     out={**DEFAULT_SETTINGS,**value}
+    if 'music_volume' not in value: out['music_volume']=out['volume']
     if not isinstance(out['enabled'],list) or not out['enabled'] or len(out['enabled'])>len(EVENTS) or any(not isinstance(x,str) or x not in EVENT_IDS for x in out['enabled']):
         raise ValueError(f'Выберите от 1 до {len(EVENTS)} событий.')
     out['enabled']=list(dict.fromkeys(out['enabled']))
     if type(out['volume']) is not int or not 0<=out['volume']<=100: raise ValueError('Громкость: 0–100.')
+    out['music_volume']=percent(out['music_volume'],'Громкость музыки')
+    out['upgrader_chance']=percent(out['upgrader_chance'],'Шанс апгрейдера')
     if type(out['demo']) is not bool: raise ValueError('Неверный режим демо.')
     if out['ai_provider'] not in ('gemini','groq'): raise ValueError('Неизвестный провайдер ИИ.')
     if not isinstance(out['tp_key'],str) or not re.fullmatch('[A-Za-z0-9]',out['tp_key']): raise ValueError('Клавиша ТП: одна латинская буква или цифра.')
@@ -64,16 +73,25 @@ def settings(value):
     return out
 
 def command(value):
-    if not isinstance(value,dict) or set(value)-{'action','event','settings','duration','track'}: raise ValueError('Неизвестная команда.')
+    if not isinstance(value,dict) or set(value)-{'action','event','settings','duration','track','chance','volume'}: raise ValueError('Неизвестная команда.')
     action=value.get('action')
     if action not in ACTIONS: raise ValueError('Команда не разрешена.')
+    if action=='music_volume' and set(value)-{'action','volume'}:
+        raise ValueError('Команда громкости принимает только процент.')
+    if 'chance' in value and not (action=='event' and value.get('event')=='upgrader'):
+        raise ValueError('Шанс задаётся только для апгрейдера.')
+    if 'volume' in value and not (action=='music_volume' or action=='event' and value.get('event')=='music'):
+        raise ValueError('Громкость задаётся только для музыки.')
     out={'action':action}
     if action=='event':
         if not isinstance(value.get('event'),str) or value['event'] not in EVENT_IDS: raise ValueError('Событие не разрешено.')
         out['event']=value['event']
         if 'duration' in value: out['duration']=duration(out['event'],value['duration'])
+        if 'chance' in value: out['chance']=percent(value['chance'],'Шанс апгрейдера')
+        if 'volume' in value: out['volume']=percent(value['volume'],'Громкость музыки')
         if 'track' in value:
             if out['event']!='music' or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',str(value['track'])): raise ValueError('Неверный трек.')
             out['track']=value['track']
     if action=='settings': out['settings']=settings(value.get('settings'))
+    if action=='music_volume': out['volume']=percent(value.get('volume'),'Громкость музыки')
     return out
