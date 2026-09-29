@@ -9,15 +9,32 @@ EVENTS = [
     ('mouse','Блок мыши',3,'Ввод'), ('both','Блок клавиатуры и мыши',3,'Ввод'),
     ('kill','Закрыть Dota 2',0,'Игра'), ('buy','Купить 1–10 ТП',0,'Игра'),
     ('reverse','Переворот экрана',30,'Экран'), ('cmd','Консоль по центру',10,'Окна'),
-    ('monitor','Выключение монитора',10,'Экран'), ('pong','Пинг-понг',30,'Мини-игры'),
+    ('monitor','Выключение монитора',10,'Экран'), ('pong','Пинг-понг · 1 на 1',0,'Мини-игры'),
     ('desktop','Второй рабочий стол',0,'Окна'), ('cubes','Прыгающие красные кубы',40,'Оверлеи'),
-    ('chess','Шахматы — 25 ходов',60,'Мини-игры'), ('ai','Убеди ИИ — растущий накал',60,'Мини-игры'),
+    ('chess','Шахматы · 1 на 1',0,'Мини-игры'), ('ai','Убеди ИИ — растущий накал',60,'Мини-игры'),
+    ('upgrader','Апгрейдер · шанс на иммунитет',7,'Мини-игры'),
+    ('music','Музыка',60,'Медиа'), ('bw','Чёрно-белый экран',60,'Экран'),
 ]
 EVENT_IDS = {e[0] for e in EVENTS}
-ACTIONS = {'event','start','stop','spin','settings','capture_shop','choose_video','preview_video'}
+PROTOCOL_VERSION=2
+PVP_EVENTS={'chess','pong'}
+DURATION_LIMITS={e[0]:(1,3600) for e in EVENTS if e[2]}
+for _kind in ('keyboard','mouse','both','tp','window','monitor'):
+    DURATION_LIMITS[_kind]=(1,60)
+DURATION_LIMITS['upgrader']=(3,30)
+DURATION_LIMITS['cubes']=(5,3600)
+DEFAULT_DURATIONS={e[0]:e[2] for e in EVENTS if e[2]}
+ACTIONS = {'event','start','stop','spin','settings','capture_shop','choose_video','preview_video','choose_music'}
 DEFAULT_SETTINGS = {'enabled':[e[0] for e in EVENTS if e[0] not in ('kill','buy')],
                     'volume':65, 'tp_key':'T', 'shop_key':'F4', 'shop_xy':'',
-                    'demo':False, 'ai_provider':'gemini'}
+                    'demo':False, 'ai_provider':'gemini','durations':DEFAULT_DURATIONS,'music_track':'default'}
+
+def duration(kind,value):
+    if kind not in DURATION_LIMITS: raise ValueError('У этого события нет таймера.')
+    low,high=DURATION_LIMITS[kind]
+    if type(value) is not int or not low<=value<=high:
+        raise ValueError(f'Длительность события: {low}–{high} секунд.')
+    return value
 
 def username(value):
     if not isinstance(value,str): raise ValueError('Введите ник.')
@@ -30,8 +47,8 @@ def settings(value):
     if not isinstance(value,dict) or set(value)-set(DEFAULT_SETTINGS):
         raise ValueError('Неизвестные настройки.')
     out={**DEFAULT_SETTINGS,**value}
-    if not isinstance(out['enabled'],list) or not out['enabled'] or len(out['enabled'])>18 or any(x not in EVENT_IDS for x in out['enabled']):
-        raise ValueError('Выберите от 1 до 18 событий.')
+    if not isinstance(out['enabled'],list) or not out['enabled'] or len(out['enabled'])>len(EVENTS) or any(not isinstance(x,str) or x not in EVENT_IDS for x in out['enabled']):
+        raise ValueError(f'Выберите от 1 до {len(EVENTS)} событий.')
     out['enabled']=list(dict.fromkeys(out['enabled']))
     if type(out['volume']) is not int or not 0<=out['volume']<=100: raise ValueError('Громкость: 0–100.')
     if type(out['demo']) is not bool: raise ValueError('Неверный режим демо.')
@@ -40,15 +57,23 @@ def settings(value):
     if not isinstance(out['shop_key'],str) or not re.fullmatch(r'(?:F(?:[1-9]|1[0-2])|[A-Za-z0-9])',out['shop_key']): raise ValueError('Клавиша магазина: F1–F12, буква или цифра.')
     xy=out['shop_xy']
     if not isinstance(xy,str) or (xy and not re.fullmatch(r'-?\d{1,5}\s*,\s*-?\d{1,5}',xy)): raise ValueError('Координаты ТП: x, y.')
+    durations=out['durations']
+    if not isinstance(durations,dict) or set(durations)-set(DURATION_LIMITS): raise ValueError('Неизвестные длительности.')
+    out['durations']={**DEFAULT_DURATIONS,**{k:duration(k,v) for k,v in durations.items()}}
+    if not isinstance(out['music_track'],str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',out['music_track']): raise ValueError('Неверный идентификатор трека.')
     return out
 
 def command(value):
-    if not isinstance(value,dict) or set(value)-{'action','event','settings'}: raise ValueError('Неизвестная команда.')
+    if not isinstance(value,dict) or set(value)-{'action','event','settings','duration','track'}: raise ValueError('Неизвестная команда.')
     action=value.get('action')
     if action not in ACTIONS: raise ValueError('Команда не разрешена.')
     out={'action':action}
     if action=='event':
-        if value.get('event') not in EVENT_IDS: raise ValueError('Событие не разрешено.')
+        if not isinstance(value.get('event'),str) or value['event'] not in EVENT_IDS: raise ValueError('Событие не разрешено.')
         out['event']=value['event']
+        if 'duration' in value: out['duration']=duration(out['event'],value['duration'])
+        if 'track' in value:
+            if out['event']!='music' or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',str(value['track'])): raise ValueError('Неверный трек.')
+            out['track']=value['track']
     if action=='settings': out['settings']=settings(value.get('settings'))
     return out

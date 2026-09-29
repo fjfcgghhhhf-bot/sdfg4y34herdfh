@@ -9,13 +9,14 @@ class RemoteLink(QObject):
     disconnected=pyqtSignal(str)
     command_received=pyqtSignal(dict)
     enrolled=pyqtSignal(dict)
+    state_received=pyqtSignal(dict)
     def __init__(self,config,snapshot,parent=None):
         super().__init__(parent); self.config=config; self.snapshot=snapshot
         self.network=QNetworkAccessManager(self); self.session_id=''; self.generation=0
         self.active=False; self.pending=False; self.last_ok=0; self.acks=[]; self.seen=set()
         self.poll_timer=QTimer(self); self.poll_timer.setInterval(1000); self.poll_timer.timeout.connect(self.poll)
         self.guard=QTimer(self); self.guard.setInterval(250); self.guard.timeout.connect(self.watchdog); self.guard.start()
-    def post(self,path,body,callback):
+    def post(self,path,body,callback,errback=None):
         generation=self.generation; sent=time.monotonic()
         req=QNetworkRequest(QUrl(self.config['server']+path)); req.setTransferTimeout(6000)
         req.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader,'application/json')
@@ -32,7 +33,9 @@ class RemoteLink(QObject):
                 if failed or code!=200: raise ValueError(data.get('error','Нет связи с сервером.'))
                 callback(data,time.monotonic()-sent)
             except Exception as error:
-                self.disconnect(str(error) if isinstance(error,ValueError) else 'Ошибка связи. Подключитесь снова.')
+                reason=str(error) if isinstance(error,ValueError) else 'Ошибка связи. Подключитесь снова.'
+                if errback: errback(reason)
+                else: self.disconnect(reason)
         reply.finished.connect(done)
     def connect_server(self):
         self.generation+=1; self.active=False; self.pending=False; self.acks=[]; self.seen.clear()
@@ -54,6 +57,7 @@ class RemoteLink(QObject):
             if data.get('session_id')!=self.session_id: raise ValueError('Сеанс изменился.')
             self.last_ok=time.monotonic()
             self.acks=[x for x in self.acks if x not in sent_acks]
+            self.state_received.emit({'match':data.get('match'),'immunity':max(0,float(data.get('immunity',0))-elapsed)})
             for item in data.get('commands',[]):
                 cid=item['id']
                 if cid in self.seen: continue

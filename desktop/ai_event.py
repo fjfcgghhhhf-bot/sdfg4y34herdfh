@@ -72,7 +72,7 @@ class AIChallenge(ChallengeWindow):
     screen_height_fraction = .5
 
     def __init__(self, api_key, model=DEFAULT_MODEL):
-        super().__init__('Убеди ИИ — одна минута')
+        super().__init__('Убеди ИИ — растущий накал')
         self.resize(650,660)
         if not api_key.strip():
             raise ValueError('Введите ключ Groq в главном окне.')
@@ -89,7 +89,7 @@ class AIChallenge(ChallengeWindow):
         self.network=QNetworkAccessManager(self)
         layout=QVBoxLayout(self)
         layout.setContentsMargins(8,8,8,8); layout.setSpacing(4)
-        title=QLabel('Убеди ИИ · удерживайте градус до конца минуты')
+        title=QLabel('Убеди ИИ · удерживайте градус до конца таймера')
         title.setWordWrap(True); layout.addWidget(title)
         self.clock=QLabel('Подключение… Таймер начнётся после первого ответа.')
         self.clock.setWordWrap(True); layout.addWidget(self.clock)
@@ -171,7 +171,7 @@ class AIChallenge(ChallengeWindow):
         if self.deadline is None:
             self.heat=80.0
             self.start_clock()
-            self.heat_updated=self.deadline-60.0
+            self.heat_updated=self.deadline-self.duration
         else:
             # Apply the model's change to the CURRENT heat, preserving heat gained
             # during network latency. A single answer cannot reset the whole bar.

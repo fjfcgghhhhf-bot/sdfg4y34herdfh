@@ -363,10 +363,10 @@ class WindowsController:
     def start_pong(self, cancel: threading.Event, duration: float = 30.0) -> None:
         self._call(self._acquire, "pong", Target(0, 0, 0, "desktop"), cancel, duration)
 
-    def lock_for_monitor(self, cancel: threading.Event) -> None:
+    def lock_for_monitor(self, cancel: threading.Event, duration=10.0) -> None:
         # A bounded lease prevents physical movement from immediately waking
         # the screen. F12 is still handled before every blocking decision.
-        self._call(self._acquire, "both", Target(0, 0, 0, "desktop"), cancel, 12.0)
+        self._call(self._acquire, "both", Target(0, 0, 0, "desktop"), cancel, duration+2)
 
     def _press_tp(self, keycode: int, target: Target, cancel: threading.Event) -> None:
         if cancel.is_set() or self.panic.is_set() or not self._matches(target):
@@ -384,10 +384,13 @@ class WindowsController:
             raise RuntimeError("Windows отклонила нажатие TP.")
 
     def activate(self, kind: str, tp_key: str = "T",
-                 cancel: threading.Event | None = None) -> str:
+                 cancel: threading.Event | None = None, duration=None) -> str:
         """Worker-thread API. No GUI calls and no blocking duration sleeps."""
         if kind not in DURATIONS and kind not in ("kill", "buy"):
             raise ValueError(f"Неизвестный эффект: {kind}")
+        seconds=DURATIONS.get(kind,0) if duration is None else float(duration)
+        if kind in DURATIONS and not 0<seconds<=3600:
+            raise ValueError('Недопустимая длительность.')
         cancel = cancel or threading.Event()
         if cancel.is_set() or self.panic.is_set():
             raise RuntimeError("Эффект отменён.")
@@ -420,8 +423,8 @@ class WindowsController:
         if kind == "window":
             selected, title = self._choose_window(target)
             self._focus_window(selected, cancel)
-            self._call(self._acquire, kind, selected, cancel)
-            return f"Окно: {title[:80]} · клавиатура и мышь заблокированы на 5 секунд."
+            self._call(self._acquire, kind, selected, cancel, seconds)
+            return f"Окно: {title[:80]} · блок ввода на {seconds:g} с."
         if kind == "tp":
             key = tp_key.strip().upper()
             if len(key) != 1 or key not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789":
@@ -435,17 +438,15 @@ class WindowsController:
                     raise RuntimeError("TP отменён.")
                 self._press_tp(ord(key), target, cancel)
                 # The full six-second lease starts after the final TP key up.
-                self._call(self._acquire, kind, target, cancel)
+                self._call(self._acquire, kind, target, cancel, seconds)
             except Exception:
                 self.stop_effect()
                 raise
-            return "TP нажат дважды · клавиатура и мышь заблокированы на 6 секунд."
-        self._call(self._acquire, kind, target, cancel)
-        return {"swap": "Кнопки мыши поменяны на 20 секунд.",
-                "invert": "Обе оси курсора инвертированы на 20 секунд.",
-                "keyboard": "Клавиатура заблокирована на 3 секунды.",
-                "mouse": "Мышь заблокирована на 3 секунды.",
-                "both": "Клавиатура и мышь заблокированы на 3 секунды."}[kind]
+            return f"Т нажата дважды · блок ввода на {seconds:g} с."
+        self._call(self._acquire, kind, target, cancel, seconds)
+        return {"swap": "Кнопки мыши поменяны", "invert": "Обе оси курсора инвертированы",
+                "keyboard": "Клавиатура заблокирована", "mouse": "Мышь заблокирована",
+                "both": "Клавиатура и мышь заблокированы"}[kind]+f' на {seconds:g} с.'
 
     def _tap_key(self, keycode: int) -> None:
         events = (Input * 2)()

@@ -1,13 +1,19 @@
 """Тонкий клиент: прежние обработчики событий, управление с сайта."""
 import threading
+import time
+import uuid
 from pathlib import Path
 from PyQt6.QtCore import Qt,QTimer
 from PyQt6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QCheckBox,QLineEdit,QSlider,QComboBox,QPushButton,QFileDialog
-from protocol import command,settings,DEFAULT_SETTINGS
+from protocol import command,settings,DEFAULT_SETTINGS,PROTOCOL_VERSION,PVP_EVENTS
 from debuff_roulette_advanced import MainWindow,RouletteWheel,EFFECTS,bundled_video
 from chess_event import ChessChallenge
 from remote_ai import RemoteAIChallenge
 from remote_link import RemoteLink
+from multiplayer import Multiplayer
+from upgrader import Upgrader
+from grayscale import Grayscale
+from music_event import MusicEvent,catalog
 
 class RemoteWindow(MainWindow):
     def __init__(self,config,store,demo=False,reconfigure=None):
@@ -15,6 +21,9 @@ class RemoteWindow(MainWindow):
         self.config=config; self.store=store; self.link=None; self.remote_settings=settings(config.get('settings',{}))
         # --demo is a local restriction and cannot be disabled from the web panel.
         self.local_demo=demo
+        self.immune_until=0; self.overrides={}; self.match=None; self.finished_matches=set()
+        self.music=None; self.gray=Grayscale(); self.roll_pending=False
+        self.tracks=catalog(config.get('music_files',{}))
         video=Path(config['video']) if config.get('video') else None
         if video and not video.is_file(): video=None
         super().__init__(demo=demo,video=video)
@@ -26,6 +35,7 @@ class RemoteWindow(MainWindow):
         self.link.connected.connect(self.on_connected)
         self.link.disconnected.connect(self.on_disconnected)
         self.link.enrolled.connect(lambda _:self.save_config())
+        self.link.state_received.connect(self.receive_state)
         QTimer.singleShot(100,self.link.connect_server)
     def build_ui(self,demo):
         root=QWidget(); root.setObjectName('root'); self.setCentralWidget(root)
@@ -77,28 +87,33 @@ class RemoteWindow(MainWindow):
     def apply_settings(self,value):
         value=settings(value); self.stop_timer(); self.remote_settings=value
         for effect,box in zip(EFFECTS,self.checks): box.setChecked(effect.kind in value['enabled'])
-        self.volume.setValue(value['volume']); self.tp_key.setText(value['tp_key']); self.shop_key.setText(value['shop_key']); self.shop_xy.setText(value['shop_xy'])
+        self.volume.setValue(value['volume']); self.tp_key.setText('T'); self.shop_key.setText(value['shop_key']); self.shop_xy.setText(value['shop_xy'])
         self.demo_check.setChecked(self.local_demo or value['demo']); self.refresh_sectors()
         self.save_config()
     def snapshot(self):
         self.remote_settings['shop_xy']=self.shop_xy.text()
-        return {'active':self.active_label.text(),'note':self.note_label.text(),'timer':self.timer_label.text(),
+        return {'protocol':PROTOCOL_VERSION,'tracks':[{'id':key,'title':item['title']} for key,item in self.tracks.items()],
+                'active':self.active_label.text(),'note':self.note_label.text(),'timer':self.timer_label.text(),
                 'running':self.running,'video':self.video_path.name,'settings':self.remote_settings}
     def receive_command(self,item):
         try:
             if not self.link.active or self.closed: raise ValueError('Удалённое управление выключено.')
             data=command(item['command']); action=data['action']
+            if action in ('event','start','spin','preview_video') and self.immune():
+                raise ValueError('Действует иммунитет от всех событий.')
             if action=='settings': self.apply_settings(data['settings'])
             elif action=='start': self.start_timer()
             elif action=='stop': self.stop_timer()
             elif action=='spin': self.begin_spin()
             elif action=='event':
                 self.spin=None; self.stop_effect()
+                self.overrides=data
                 index=next(i for i,e in enumerate(EFFECTS) if e.kind==data['event'])
                 self.apply_selected(index,manual=True)
             elif action=='capture_shop':
                 self.capture_shop(); QTimer.singleShot(3300,self.save_config)
             elif action=='choose_video': self.choose_video()
+            elif action=='choose_music': self.choose_music()
             elif action=='preview_video':
                 if self.demo_check.isChecked(): self.note_label.setText('Демо: предпросмотр не запускается.')
                 else: self.preview_video()
@@ -117,15 +132,176 @@ class RemoteWindow(MainWindow):
         def finished(_): self.file_dialog=None; dialog.deleteLater()
         dialog.finished.connect(finished); dialog.open()
     def show_challenge(self,kind):
+        if kind=='chess': self.find_match(kind); return
         self.cancel=threading.Event(); owner=self.cancel
         try:
-            challenge=ChessChallenge() if kind=='chess' else RemoteAIChallenge(self.link,self.remote_settings['ai_provider'])
+            challenge=RemoteAIChallenge(self.link,self.remote_settings['ai_provider'])
+            challenge.duration=self.effect_duration(kind)
             self.challenge=challenge
             challenge.finished.connect(lambda result,reason:self.challenge_finished(challenge,owner,result,reason))
             challenge.start(); self.note_label.setText('Мини-игра открыта. Esc — отменить; F12 — выйти.')
         except Exception:
             self.stop_effect(); self.note_label.setText('Мини-игра недоступна. Эффект отменён.')
+
+    def effect_duration(self,kind):
+        if self.overrides.get('event')==kind and 'duration' in self.overrides: return self.overrides['duration']
+        return self.remote_settings['durations'].get(kind,0)
+
+    def immune(self): return self.immune_until>time.monotonic()
+
+    def set_immunity(self,seconds):
+        was_immune=self.immune()
+        self.immune_until=max(self.immune_until,time.monotonic()+max(0,seconds))
+        if seconds>0:
+            self.running=False; self.spin=None
+            if not was_immune and not self.roll_pending and not isinstance(self.challenge,Upgrader): self.stop_effect()
+
+    def start_timer(self):
+        if not self.immune(): super().start_timer()
+
+    def begin_spin(self):
+        # Unbounded PvP games are never interrupted by the 120-second roulette.
+        if self.immune() or self.match or self.roll_pending: return
+        super().begin_spin()
+
+    def apply_selected(self,index,manual=False):
+        if self.immune(): return
+        effect=EFFECTS[index]
+        if self.demo_check.isChecked() or effect.kind not in ('upgrader','music','bw'):
+            super().apply_selected(index,manual); return
+        if not manual and not self.checks[index].isChecked(): return
+        self.effect_title=effect.title; self.active_label.setText(effect.title)
+        self.cancel=threading.Event(); owner=self.cancel
+        try:
+            if effect.kind=='upgrader':
+                self.roll_pending=True
+                def receive(data,elapsed):
+                    self.roll_pending=False
+                    if owner.is_set() or self.closed: return
+                    challenge=Upgrader(data,self.effect_duration('upgrader')); self.challenge=challenge
+                    challenge.finished.connect(lambda result,reason:self.challenge_finished(challenge,owner,result,reason))
+                    if data.get('immunity'): self.set_immunity(max(0,data['immunity']-elapsed))
+                    challenge.start()
+                def failed(reason):
+                    if owner is self.cancel:
+                        self.roll_pending=False; self.note_label.setText(reason)
+                self.link.post('/api/client/upgrader',{'session_id':self.link.session_id,'duration':self.effect_duration('upgrader')},receive,failed)
+            elif effect.kind=='bw':
+                self.gray.start(self.effect_duration('bw')); self.note_label.setText('Чёрно-белый фильтр. F12 — восстановить цвета и выйти.')
+            else:
+                key=self.overrides.get('track',self.remote_settings['music_track'])
+                if key not in self.tracks: raise ValueError('Трек не найден на этом компьютере. Выберите другой трек на сайте.')
+                music=MusicEvent(self.tracks[key]['path'],self.effect_duration('music'),self.volume.value()/100,self)
+                self.music=music
+                music.finished.connect(lambda reason:self.music_finished(music,reason)); music.start()
+                self.note_label.setText('Играет: '+self.tracks[key]['title'])
+        except Exception as error:
+            self.stop_effect(); self.note_label.setText(str(error))
+
+    def music_finished(self,music,reason):
+        if self.music is music:
+            self.music=None; self.active_label.setText(reason); music.deleteLater()
+
+    def choose_music(self):
+        if getattr(self,'file_dialog',None): return
+        dialog=QFileDialog(self,'Добавить музыку на этом компьютере'); self.file_dialog=dialog
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog,True)
+        dialog.setNameFilter('Музыка (*.mp3 *.wav *.ogg *.flac *.m4a)')
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+        def chosen(paths):
+            files=self.config.setdefault('music_files',{})
+            for path in paths[:max(0,28-len(files))]:
+                if path not in files.values(): files['local_'+uuid.uuid4().hex[:12]]=path
+            self.tracks=catalog(files); self.save_config(); self.note_label.setText('Музыка добавлена. Список треков доступен на сайте.')
+        dialog.filesSelected.connect(chosen)
+        def finished(_): self.file_dialog=None; dialog.deleteLater()
+        dialog.finished.connect(finished); dialog.open()
+
+    def show_pong(self): self.find_match('pong')
+
+    def find_match(self,kind):
+        owner=self.cancel
+        def receive(data,elapsed):
+            state=data.get('match')
+            if owner.is_set() or self.closed:
+                if state: self.link.post('/api/client/match',{'session_id':self.link.session_id,'id':state['id'],'action':'cancel'},lambda *_:None,lambda _:None)
+                return
+            self.receive_match(state)
+        # A fresh owner also prevents a delayed match-find from reopening a stopped game.
+        self.cancel=threading.Event(); owner=self.cancel
+        self.link.post('/api/client/match/find',{'session_id':self.link.session_id,'kind':kind},receive,
+                       lambda reason:self.note_label.setText(reason) if not owner.is_set() else None)
+
+    def receive_state(self,data):
+        self.set_immunity(data.get('immunity',0))
+        self.receive_match(data.get('match'))
+
+    def receive_match(self,state):
+        if not state or self.closed: return
+        mid=state['id']
+        if self.match and self.match.match_id==mid:
+            self.match.receive(state); return
+        if mid in self.finished_matches: return
+        if state['status']=='ended':
+            self.finished_matches.add(mid)
+            self.link.post('/api/client/match',{'session_id':self.link.session_id,'id':mid,'action':'ack'},lambda *_:None,lambda _:None); return
+        if self.immune() or self.demo_check.isChecked():
+            self.finished_matches.add(mid)
+            self.link.post('/api/client/match',{'session_id':self.link.session_id,'id':mid,'action':'cancel'},lambda *_:None,lambda _:None)
+            self.note_label.setText('Демо: сетевой матч отменён.' if self.demo_check.isChecked() else 'Матч пропущен: иммунитет.'); return
+        self.spin=None; self.stop_effect(); self.cancel=threading.Event(); owner=self.cancel
+        match=Multiplayer(self.link,state); self.match=match
+        self.effect_title='Шахматы · 1 на 1' if state['kind']=='chess' else 'Пинг-понг · 1 на 1'
+        self.active_label.setText(self.effect_title); self.note_label.setText('Без таймера. Esc — отмена без поражения; F12 — выход.')
+        match.finished.connect(lambda result,reason:self.match_finished(match,owner,result,reason)); match.start()
+
+    def match_finished(self,match,owner,result,reason):
+        if self.match is not match: return
+        self.finished_matches.add(match.match_id); self.match=None; match.deleteLater()
+        self.note_label.setText(reason); self.active_label.setText('Поражение' if result=='loss' else 'Победа' if result=='win' else 'Матч завершён без поражения')
+        self.penalty(owner,result,reason)
+
+    def penalty(self,owner,result,reason):
+        if result!='loss' or self.immune() or owner.is_set() or self.closed or self.controller.panic.is_set() or self.demo_check.isChecked(): return
+        def close_game():
+            try:
+                if self.immune() or owner.is_set() or not self.link.active: return
+                message=self.controller.activate('kill',cancel=owner)
+            except Exception: message='Не удалось закрыть Dota 2.'
+            self.messages.put((owner,reason+' '+message))
+        threading.Thread(target=close_game,daemon=True,name='RemoteMatchLoss').start()
+
+    def challenge_finished(self,challenge,owner,result,reason):
+        if self.challenge is not challenge: return
+        self.challenge=None; challenge.deleteLater(); self.had_effect=False
+        self.note_label.setText(reason); self.active_label.setText(reason)
+        self.penalty(owner,result,reason)
+
+    def stop_effect(self):
+        self.roll_pending=False; self.overrides={}
+        match,self.match=self.match,None
+        if match:
+            self.finished_matches.add(match.match_id); match.stop(); match.deleteLater()
+        music,self.music=self.music,None
+        if music: music.stop(); music.deleteLater()
+        self.gray.stop()
+        super().stop_effect()
+
+    def tick(self):
+        super().tick()
+        if self.closed: return
+        for kind,message in self.gray.poll():
+            if kind=='error': self.note_label.setText(message)
+            elif kind=='finished': self.active_label.setText('Исходные цвета экрана восстановлены')
+        remaining=max(self.gray.remaining(),self.music.remaining() if self.music else 0)
+        if remaining>0: self.active_label.setText(f'{self.effect_title}\nОсталось {remaining:.1f} с')
+        if self.immune():
+            left=max(0,int(self.immune_until-time.monotonic()))
+            self.timer_label.setText(f'{left//60:02d}:{left%60:02d}')
+            self.active_label.setText('Иммунитет от всех событий')
     def closeEvent(self,event):
+        # Send cancellation while the authenticated link still exists.
+        if self.match: self.stop_effect()
         if self.link:
             self.link.disconnected.disconnect(self.on_disconnected); self.link.disconnect()
         if getattr(self,'file_dialog',None): self.file_dialog.reject()

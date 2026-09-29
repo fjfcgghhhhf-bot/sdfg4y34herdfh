@@ -67,11 +67,14 @@ EFFECTS = (
     Effect("reverse", "Переворот экрана", "ПЕРЕВОРОТ\nЭКРАНА", 30, "#357b70"),
     Effect("cmd", "Консоль по центру экрана", "КОНСОЛЬ", 10, "#407d42"),
     Effect("monitor", "Выключение монитора", "МОНИТОР\nВЫКЛ", 10, "#535669"),
-    Effect("pong", "Пинг-понг — промах закрывает Dota 2", "ПИНГ\nПОНГ", 30, "#317cad"),
+    Effect("pong", "Пинг-понг · 1 на 1", "ПИНГ\nПОНГ", 0, "#317cad"),
     Effect("desktop", "Перейти на второй рабочий стол", "РАБОЧИЙ\nСТОЛ 2", 0, "#5864a2"),
     Effect("cubes", "Красные кубы — прыгающие кубы", "КРАСНЫЕ\nКУБЫ", 40, "#b63447"),
-    Effect("chess", "Шахматы — 25 ходов, мгновенная победа", "ШАХМАТЫ", 60, "#607b81"),
+    Effect("chess", "Шахматы · 1 на 1", "ШАХМАТЫ", 0, "#607b81"),
     Effect("ai", "Убеди ИИ — растущий накал", "УБЕДИ\nИИ", 60, "#9262b0"),
+    Effect("upgrader", "Апгрейдер", "АПГРЕЙДЕР", 7, "#c44883"),
+    Effect("music", "Музыка", "МУЗЫКА", 60, "#328b85"),
+    Effect("bw", "Чёрно-белый экран", "ЧБ ЭКРАН", 60, "#697384"),
 )
 
 WHEEL_LABELS = {'swap':'Кнопки', 'invert':'Инверсия', 'tp':'ТП на базу',
@@ -79,7 +82,8 @@ WHEEL_LABELS = {'swap':'Кнопки', 'invert':'Инверсия', 'tp':'ТП �
                 'mouse':'Мышь', 'both':'Блок ввода', 'kill':'Закрыть Dota',
                 'buy':'Купить ТП', 'reverse':'Переворот', 'cmd':'Консоль',
                 'monitor':'Монитор', 'pong':'Пинг-понг', 'desktop':'Стол 2',
-                'cubes':'Кубы', 'chess':'Шахматы', 'ai':'Убеди ИИ'}
+                'cubes':'Кубы', 'chess':'Шахматы', 'ai':'Убеди ИИ',
+                'upgrader':'Апгрейдер', 'music':'Музыка', 'bw':'ЧБ экран'}
 
 
 def bundled_video() -> Path:
@@ -449,15 +453,19 @@ class MainWindow(QMainWindow):
         self.note_label.setText("Демо-вращение" if self.demo_check.isChecked() else
                                "Сейчас будет применён выбранный глобальный эффект.")
 
+    def effect_duration(self, kind):
+        return next(e.seconds for e in EFFECTS if e.kind==kind)
+
     def apply_selected(self, index: int, manual: bool = False) -> None:
         effect = EFFECTS[index]
+        seconds = self.effect_duration(effect.kind)
         if not manual and not self.checks[index].isChecked():
             self.active_label.setText("Выбранный эффект отключён")
             return
         self.effect_title = effect.title
         self.active_label.setText(effect.title)
         if self.demo_check.isChecked():
-            self.note_label.setText(f"Демо: {effect.title}, {effect.seconds} секунд. Действие не выполнялось.")
+            self.note_label.setText(f"Демо: {effect.title}, {seconds} секунд. Действие не выполнялось.")
             return
         if effect.kind in ("chess", "ai"):
             self.show_challenge(effect.kind)
@@ -467,25 +475,25 @@ class MainWindow(QMainWindow):
             return
         if effect.kind == "reverse":
             try:
-                self.rotation.start(30.0)
-                self.note_label.setText("Переворот монитора на 180°: восстановление через 30 секунд. F12 — выход.")
+                self.rotation.start(seconds)
+                self.note_label.setText(f"Переворот монитора на 180°: {seconds} с. F12 — выход.")
             except Exception as exc:
                 self.note_label.setText(f"Переворот не запущен: {exc}")
             return
         if effect.kind == "cmd":
             try:
                 directory = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
-                self.cmd_event.start(directory, 10.0)
-                self.note_label.setText("Консоль: color 2 и dir /s в папке программы. Закрытие через 10 секунд; F12 — выход.")
+                self.cmd_event.start(directory, seconds)
+                self.note_label.setText(f"Консоль: color 2 и dir /s в папке программы. Закрытие через {seconds} с; F12 — выход.")
             except Exception as exc:
                 self.note_label.setText(f"Консоль не запущена: {exc}")
             return
         if effect.kind == "monitor":
             try:
                 self.cancel = threading.Event()
-                self.controller.lock_for_monitor(self.cancel)
-                self.monitor.start(10.0)
-                self.note_label.setText("Монитор: выключение на 10 секунд с блоком ввода. F12 — включить и выйти.")
+                self.controller.lock_for_monitor(self.cancel, seconds)
+                self.monitor.start(seconds)
+                self.note_label.setText(f"Монитор: выключение на {seconds} с с блоком ввода. F12 — включить и выйти.")
             except Exception as exc:
                 self.controller.stop_effect()
                 self.note_label.setText(f"Выключение монитора не запущено: {exc}")
@@ -499,11 +507,11 @@ class MainWindow(QMainWindow):
             return
         if effect.kind == "cubes":
             screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
-            cubes = RedCubes(screen)
+            cubes = RedCubes(screen, seconds)
             self.cubes = cubes
             cubes.finished.connect(lambda: self.cubes_finished(cubes))
             cubes.start()
-            self.note_label.setText("Красные кубы: 40 секунд, максимум 4 куба; каждый исчезает через 5 секунд. F12 — выход.")
+            self.note_label.setText(f"Красные кубы: {seconds} с, максимум 4 куба; каждый живёт до 5 с. F12 — выход.")
             return
         if effect.kind == "pong":
             self.show_pong()
@@ -526,7 +534,7 @@ class MainWindow(QMainWindow):
 
         def work() -> None:
             try:
-                result = self.controller.activate(effect.kind, key, owner)
+                result = self.controller.activate(effect.kind, key, owner, duration=seconds or None)
                 self.messages.put((owner, result))
             except Exception as exc:
                 self.messages.put((owner, f"Эффект отменён: {exc}"))
@@ -626,7 +634,7 @@ class MainWindow(QMainWindow):
             previous.stop()
             previous.deleteLater()
         screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
-        overlay = VideoOverlay(self.video_path, duration=30.0,
+        overlay = VideoOverlay(self.video_path, duration=self.effect_duration('video'),
                                volume=self.volume.value() / 100.0, screen=screen)
         self.overlay = overlay
         self.cancel = threading.Event()
@@ -641,7 +649,7 @@ class MainWindow(QMainWindow):
                       owner: threading.Event | None = None) -> None:
         if self.overlay is overlay:
             self.had_effect = True
-            self.note_label.setText("Видео на 30 секунд. F12 — выход.")
+            self.note_label.setText(f"Видео на {self.effect_duration('video')} с. F12 — выход.")
             if auto_win and owner is not None and not overlay.property("win_requested"):
                 overlay.setProperty("win_requested", True)
                 def press_win():

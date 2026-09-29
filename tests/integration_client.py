@@ -12,7 +12,7 @@ ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT/'desktop'))
 from werkzeug.serving import make_server,WSGIRequestHandler
 from PyQt6.QtWidgets import QApplication
 from server import create_app
-from protocol import EVENTS,DEFAULT_SETTINGS
+from protocol import EVENTS,DEFAULT_SETTINGS,PVP_EVENTS
 from client_store import Store
 import debuff_roulette_advanced as engine
 from remote_window import RemoteWindow
@@ -48,7 +48,7 @@ def main():
                 end=time.monotonic()+timeout
                 while not condition() and time.monotonic()<end: qt.processEvents(); time.sleep(.01)
                 assert condition(),w.note_label.text()
-            until(lambda:w.link.active)
+            until(lambda:w.link.active and not w.link.pending)
             cid=w.config['client_id']
             def send(cmd):
                 response=admin.post('/api/admin/command',headers=headers,json={'targets':[cid],'command':cmd})
@@ -57,6 +57,7 @@ def main():
             send({'action':'start'}); until(lambda:w.running)
             send({'action':'stop'}); until(lambda:not w.running)
             for event in EVENTS:
+                if event[0] in PVP_EVENTS: continue
                 w.note_label.setText('Ожидание теста')
                 send({'action':'event','event':event[0]})
                 until(lambda:w.note_label.text().startswith('Демо:'))
@@ -84,6 +85,6 @@ def main():
         store.save({'server':'https://example.invalid','username':'Тест','token':secret})
         assert secret not in store.path.read_text() and store.load()['token']==secret
         http.server_close()
-    print('PASS HTTP enrollment, 18 events, start/stop, settings, forced demo, AI proxy reply, disconnect cleanup, DPAPI')
+    print('PASS HTTP enrollment, 19 solo events, start/stop, settings, forced demo, AI proxy reply, disconnect cleanup, DPAPI')
 
 if __name__=='__main__': main()

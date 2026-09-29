@@ -54,7 +54,7 @@ class CubesModel:
 class RedCubes(QWidget):
     finished = pyqtSignal()
 
-    def __init__(self, screen=None):
+    def __init__(self, screen=None, duration=40.0):
         super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
                          Qt.WindowType.WindowStaysOnTopHint |
                          Qt.WindowType.WindowTransparentForInput |
@@ -63,12 +63,13 @@ class RedCubes(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setGeometry((screen or QApplication.primaryScreen()).geometry())
         self.model = None
+        self.duration = duration
         self.done = False
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.advance)
 
     def start(self):
-        self.model = CubesModel(self.width(), self.height(), time.monotonic())
+        self.model = CubesModel(self.width(), self.height(), time.monotonic(), self.duration)
         self.show()
         self.advance()
         self.timer.start(33)

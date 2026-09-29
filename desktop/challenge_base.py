@@ -16,6 +16,7 @@ class ChallengeWindow(QWidget):
         self.setObjectName('root')
         self.setWindowTitle(title)
         self.deadline = None
+        self.duration = 60.0
         self.done = False
         self.timer = QTimer(self)
         self.timer.setInterval(25)
@@ -24,7 +25,7 @@ class ChallengeWindow(QWidget):
         self.escape.activated.connect(self.stop)
 
     def start_clock(self):
-        self.deadline = time.monotonic()+60.0
+        self.deadline = time.monotonic()+self.duration
         self.timer.start()
 
     def remaining(self):

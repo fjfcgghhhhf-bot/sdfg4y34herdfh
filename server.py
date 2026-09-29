@@ -3,6 +3,7 @@ import functools
 import hashlib
 import json
 import os
+import random
 from pathlib import Path
 import secrets
 import sqlite3
@@ -15,7 +16,8 @@ from flask import Flask, g, jsonify, redirect, render_template, request, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
-from protocol import EVENTS, DEFAULT_SETTINGS, command, username, settings
+from protocol import EVENTS, DEFAULT_SETTINGS, DURATION_LIMITS, PROTOCOL_VERSION, PVP_EVENTS, command, username, settings, duration
+from matches import MatchHub
 
 ONLINE_SECONDS=8
 
@@ -64,6 +66,16 @@ def create_app(config=None):
         db().execute("UPDATE clients SET last_seen=0,session_id=''")
         db().commit()
     limits=OrderedDict(); rate_lock=threading.Lock()
+    hub=MatchHub(); app.extensions['matches']=hub
+    with app.app_context():
+        columns={row['name'] for row in db().execute('PRAGMA table_info(clients)')}
+        if 'immune_until' not in columns:
+            db().execute('ALTER TABLE clients ADD COLUMN immune_until REAL NOT NULL DEFAULT 0')
+        db().commit()
+    def eligible(rows,kind=None):
+        return [r for r in rows if json.loads(r['status']).get('protocol',1)>=PROTOCOL_VERSION
+                and r['immune_until']<=time.time() and not hub.busy(r['id'])
+                and (kind is None or kind in json.loads(r['status']).get('settings',DEFAULT_SETTINGS)['enabled'])]
     def rate(key,count,seconds):
         now=time.monotonic()
         with rate_lock:
@@ -163,9 +175,11 @@ def create_app(config=None):
         db().commit()
         for r in db().execute('SELECT * FROM clients ORDER BY name_key'):
             rows.append({'id':r['id'],'name':r['name'],'online':not r['revoked'] and now-r['last_seen']<ONLINE_SECONDS,
-                'last_seen':r['last_seen'],'revoked':bool(r['revoked']),'status':json.loads(r['status'])})
+                'last_seen':r['last_seen'],'revoked':bool(r['revoked']),'status':json.loads(r['status']),
+                'immunity':max(0,int(r['immune_until']-now)), 'match':hub.view(r['id'])})
         logs=[dict(r) for r in db().execute('SELECT c.id,u.name,c.payload,c.status,c.detail,c.created FROM commands c JOIN clients u ON u.id=c.client_id ORDER BY c.created DESC LIMIT 60')]
-        return jsonify(clients=rows,events=[dict(id=e[0],title=e[1],seconds=e[2],category=e[3]) for e in EVENTS],
+        return jsonify(clients=rows,events=[dict(id=e[0],title=e[1],seconds=e[2],category=e[3],limits=DURATION_LIMITS.get(e[0])) for e in EVENTS],
+                       protocol=PROTOCOL_VERSION,
                        commands=logs,defaults=DEFAULT_SETTINGS,providers={'gemini':bool(os.environ.get('GEMINI_API_KEY')),'groq':bool(os.environ.get('GROQ_API_KEY'))})
     @app.post('/api/admin/invite')
     @admin
@@ -194,6 +208,9 @@ def create_app(config=None):
     @app.post('/api/client/session')
     @client
     def connect():
+        hub.cancel(g.client['id'],'Игрок переподключился. Отмена без поражения.')
+        prior=hub.current(g.client['id'])
+        if prior: hub.ack(g.client['id'],prior.id)
         sid=secrets.token_hex(24)
         db().execute("UPDATE commands SET status='expired' WHERE client_id=? AND status='queued'",(g.client['id'],))
         db().execute('UPDATE clients SET session_id=?,last_seen=?,status=? WHERE id=?',
@@ -210,6 +227,10 @@ def create_app(config=None):
         if not isinstance(value,dict): raise ValueError('Неверный статус.')
         clean={k:str(value.get(k,''))[:350] for k in ('active','note','timer','video')}
         clean['running']=value.get('running') is True
+        clean['protocol']=value.get('protocol',1) if type(value.get('protocol',1)) is int else 1
+        tracks=value.get('tracks',[])
+        clean['tracks']=[{'id':str(t.get('id',''))[:64],'title':str(t.get('title',''))[:100]}
+                         for t in tracks[:30] if isinstance(t,dict)] if isinstance(tracks,list) else []
         clean['settings']=settings(value.get('settings',{}))
         now=time.time(); connection=db(); connection.execute('BEGIN IMMEDIATE')
         connection.execute('UPDATE clients SET last_seen=?,status=? WHERE id=?',(now,json.dumps(clean,ensure_ascii=False),g.client['id']))
@@ -228,7 +249,10 @@ def create_app(config=None):
             commands=[{'id':row['id'],'command':json.loads(row['payload']),'ttl':max(0,row['expires']-now)}]
         connection.execute('DELETE FROM commands WHERE created<?',(now-86400,))
         connection.commit()
-        return jsonify(commands=commands,session_id=g.client['session_id'])
+        if g.client['immune_until']>now:
+            commands=[item for item in commands if item['command']['action'] not in ('event','start','spin','preview_video')]
+        return jsonify(commands=commands,session_id=g.client['session_id'],
+                       immunity=max(0,g.client['immune_until']-now),match=hub.view(g.client['id']))
     @app.post('/api/admin/command')
     @admin
     def send():
@@ -239,8 +263,27 @@ def create_app(config=None):
         rows=connection.execute('SELECT * FROM clients WHERE revoked=0 AND last_seen>? AND session_id<>?',(now-ONLINE_SECONDS,'')).fetchall()
         rows=[r for r in rows if targets=='all' or r['id'] in targets]
         if not rows: return fail('Нет выбранных игроков в сети.',409)
+        if payload['action']!='stop' and any(json.loads(r['status']).get('protocol',1)<PROTOCOL_VERSION for r in rows):
+            return fail('Обновите выбранным игрокам клиент до версии 2.',409)
+        if payload['action'] in ('event','start','spin','preview_video'):
+            rows=[r for r in rows if r['immune_until']<=now]
+            if not rows: return fail('У выбранных игроков иммунитет.',409)
+        if payload.get('event') in PVP_EVENTS:
+            available=eligible(rows)
+            if len(available)!=len(rows): return fail('Один из игроков уже находится в матче.',409)
+            if len(rows)<2 or len(rows)%2: return fail('Выберите чётное число игроков: по двое на матч.',409)
+            random.shuffle(available)
+            ids=[]
+            for left,right in zip(available[::2],available[1::2]):
+                ids.append(hub.create(payload['event'],(left['id'],right['id']),(left['name'],right['name'])))
+                for player in (left,right):
+                    connection.execute("UPDATE commands SET status='superseded' WHERE client_id=? AND status='queued'",(player['id'],))
+            audit(f'Начаты сетевые матчи: {len(ids)}'); connection.commit()
+            return jsonify(sent=len(rows),matches=ids)
         sent=[]
         for r in rows:
+            if payload['action'] in ('stop','event','spin','settings'):
+                hub.cancel(r['id'])
             # The newest command replaces queued commands, avoiding effect backlogs.
             connection.execute("UPDATE commands SET status='superseded' WHERE client_id=? AND status='queued'",(r['id'],))
             cid=secrets.token_hex(16)
@@ -253,9 +296,55 @@ def create_app(config=None):
     @admin
     def revoke():
         cid=str(body().get('client_id',''))
+        hub.cancel(cid,'Доступ игрока отозван. Отмена без поражения.')
         db().execute("UPDATE clients SET revoked=1,last_seen=0,session_id='' WHERE id=?",(cid,))
         db().execute("UPDATE commands SET status='expired' WHERE client_id=? AND status='queued'",(cid,))
         audit('Отозвано подключение игрока.'); db().commit(); return jsonify(ok=True)
+    def live_client(data):
+        return valid_session(data) and time.time()-g.client['last_seen']<=ONLINE_SECONDS
+    @app.post('/api/client/match/find')
+    @client
+    def match_find():
+        data=body(); kind=data.get('kind')
+        if not live_client(data): return fail('Нет активного подключения.',409)
+        if kind not in PVP_EVENTS: raise ValueError('Неизвестная игра.')
+        if g.client['immune_until']>time.time(): return fail('Действует иммунитет.',409)
+        with hub.lock:
+            if hub.busy(g.client['id']): return jsonify(match=hub.view(g.client['id']))
+            rows=db().execute('SELECT * FROM clients WHERE revoked=0 AND last_seen>? AND id<>?',(time.time()-ONLINE_SECONDS,g.client['id'])).fetchall()
+            rivals=eligible(rows,kind)
+            if not rivals: return fail('Нет свободного соперника с включённым событием. Событие пропущено.',409)
+            rival=random.choice(rivals)
+            hub.create(kind,(g.client['id'],rival['id']),(g.client['name'],rival['name']))
+            return jsonify(match=hub.view(g.client['id']))
+    @app.post('/api/client/match')
+    @client
+    def match_action():
+        data=body()
+        if not live_client(data): return fail('Связь потеряна. Матч отменён.',409)
+        if data.get('action')=='ack':
+            hub.ack(g.client['id'],str(data.get('id',''))); return jsonify(match=None)
+        return jsonify(match=hub.action(g.client['id'],str(data.get('id','')),data))
+    @app.post('/api/client/upgrader')
+    @client
+    def upgrader():
+        data=body()
+        if not live_client(data): return fail('Нет активного подключения.',409)
+        if g.client['immune_until']>time.time(): return fail('Действует иммунитет.',409)
+        if hub.busy(g.client['id']): return fail('Сначала завершите сетевой матч.',409)
+        if not rate(('upgrade',g.client['id']),12,60): return fail('Подождите перед новым вращением.',429)
+        seconds=duration('upgrader',data.get('duration',7))
+        special=secrets.randbelow(100)<30
+        # Angle is independent of the 30% appearance roll. 0° is right,
+        # 90° is bottom; the pink target covers 78..102° (24° of 360°).
+        angle=secrets.randbelow(360000)/1000
+        hit=special and 78<=angle<102
+        result='immune' if hit else ('win' if 0<=angle<180 else 'loss')
+        if hit:
+            db().execute('UPDATE clients SET immune_until=? WHERE id=?',(time.time()+600+seconds,g.client['id']))
+            db().execute("UPDATE commands SET status='expired' WHERE client_id=? AND status='queued'",(g.client['id'],))
+            db().commit()
+        return jsonify(result=result,angle=angle,special=special,immunity=600+seconds if hit else 0)
     @app.post('/api/client/ai')
     @client
     def ai():

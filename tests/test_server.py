@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest.mock import patch
 from server import create_app
-from protocol import DEFAULT_SETTINGS,EVENTS
+from protocol import DEFAULT_SETTINGS,EVENTS,PROTOCOL_VERSION,PVP_EVENTS
 
 class ServerTests(unittest.TestCase):
     def setUp(self):
@@ -23,9 +23,10 @@ class ServerTests(unittest.TestCase):
         code=self.post('/api/admin/invite',{}).json['code']; c=self.app.test_client()
         r=c.post('/api/enroll',json={'username':name,'code':code}); self.assertEqual(r.status_code,200)
         headers={'Authorization':'Bearer '+r.json['token']}; sid=c.post('/api/client/session',headers=headers,json={}).json['session_id']
+        self.poll(c,headers,sid)
         return c,headers,sid,r.json['client_id'],code
     def poll(self,c,h,sid,acks=None):
-        return c.post('/api/client/poll',headers=h,json={'session_id':sid,'status':{'settings':DEFAULT_SETTINGS},'acks':acks or []})
+        return c.post('/api/client/poll',headers=h,json={'session_id':sid,'status':{'settings':DEFAULT_SETTINGS,'protocol':PROTOCOL_VERSION},'acks':acks or []})
     def sql(self,query,args=()):
         db=sqlite3.connect(self.db)
         try:
@@ -59,9 +60,10 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(bad.content_type.startswith('text/html'))
         with fresh.session_transaction() as sess: self.assertFalse(sess.get('admin',False))
         self.assertEqual(fresh.post('/api/enroll',headers=good,json={'username':'Тест','code':'bad'}).status_code,403)
-    def test_all_18_events_exact_targets_and_ack(self):
+    def test_all_single_player_events_exact_targets_and_ack(self):
         a,ha,sa,aid,_=self.enroll('Первый'); b,hb,sb,bid,_=self.enroll('Второй')
         for event in EVENTS:
+            if event[0] in PVP_EVENTS: continue
             self.assertEqual(self.post('/api/admin/command',{'targets':[aid],'command':{'action':'event','event':event[0]}}).status_code,200)
             items=self.poll(a,ha,sa).json['commands']; self.assertEqual(items[0]['command']['event'],event[0])
             self.assertEqual(self.poll(b,hb,sb).json['commands'],[])

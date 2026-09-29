@@ -72,13 +72,20 @@ class ConsoleAPI:
             'GetCursorPos': ([C.POINTER(W.POINT)], W.BOOL),
             'MonitorFromPoint': ([W.POINT, W.DWORD], W.HANDLE),
             'GetMonitorInfoW': ([W.HANDLE, C.POINTER(MonitorInfo)], W.BOOL),
+            'GetWindowLongW': ([W.HWND, C.c_int], W.LONG),
+            'SetWindowLongW': ([W.HWND, C.c_int, W.LONG], W.LONG),
+            'GetSystemMenu': ([W.HWND, W.BOOL], W.HMENU),
+            'DeleteMenu': ([W.HMENU, W.UINT, W.UINT], W.BOOL),
+            'DrawMenuBar': ([W.HWND], W.BOOL),
+            'IsIconic': ([W.HWND], W.BOOL),
+            'ShowWindowAsync': ([W.HWND, C.c_int], W.BOOL),
         }
         for name, (args, result) in signatures.items():
             function = getattr(self.user, name)
             function.argtypes, function.restype = args, result
         self.job = None
         self.process = None
-        self.title = 'Консоль рулетки - 10 секунд - ' + uuid.uuid4().hex[:8]
+        self.title = 'Консоль рулетки - F12 выход - ' + uuid.uuid4().hex[:8]
 
     def launch(self, directory):
         self.job = self.kernel.CreateJobObjectW(None, None)
@@ -154,6 +161,14 @@ class ConsoleAPI:
                 area.top + (area.bottom-area.top-height)//2, width, height)
 
     def pin(self, hwnd, desired, first=False):
+        if first:
+            style=self.user.GetWindowLongW(hwnd,-16)
+            self.user.SetWindowLongW(hwnd,-16,style & ~0x00030000)
+            menu=self.user.GetSystemMenu(hwnd,False)
+            for item in (0xF060,0xF020,0xF030):  # Close, minimize, maximize.
+                self.user.DeleteMenu(menu,item,0)
+            self.user.DrawMenuBar(hwnd)
+        if self.user.IsIconic(hwnd): self.user.ShowWindowAsync(hwnd,9)
         rect = W.RECT()
         if not self.user.GetWindowRect(hwnd, C.byref(rect)):
             return
@@ -166,7 +181,7 @@ class ConsoleAPI:
         if first or actual != desired:
             # No repeated window updates while already centered. Async avoids
             # waiting on the console's interactive move/resize message loop.
-            flags = 0x0010 | 0x4000 | (0x0040 if first else 0x0004 | 0x0001)
+            flags = 0x0010 | 0x4000 | (0x0040 | 0x0020 if first else 0x0004 | 0x0001)
             self.user.SetWindowPos(hwnd, W.HWND(-1) if first else None, *desired, flags)
 
     def close(self):
