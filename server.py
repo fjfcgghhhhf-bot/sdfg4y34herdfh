@@ -17,7 +17,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from protocol import EVENTS, DEFAULT_SETTINGS, DURATION_LIMITS, PROTOCOL_VERSION, PVP_EVENTS, command, username, settings, duration
-from protocol import UPGRADER_RESULT_SECONDS
+from protocol import UPGRADER_RESULT_SECONDS, MIN_PROTOCOL_VERSION
 from matches import MatchHub
 from upgrade_rules import roll_upgrade
 
@@ -75,7 +75,7 @@ def create_app(config=None):
             db().execute('ALTER TABLE clients ADD COLUMN immune_until REAL NOT NULL DEFAULT 0')
         db().commit()
     def eligible(rows,kind=None):
-        return [r for r in rows if json.loads(r['status']).get('protocol',1)>=PROTOCOL_VERSION
+        return [r for r in rows if json.loads(r['status']).get('protocol',1)>=MIN_PROTOCOL_VERSION
                 and r['immune_until']<=time.time() and not hub.busy(r['id'])
                 and (kind is None or kind in json.loads(r['status']).get('settings',DEFAULT_SETTINGS)['enabled'])]
     def rate(key,count,seconds):
@@ -265,9 +265,10 @@ def create_app(config=None):
         rows=connection.execute('SELECT * FROM clients WHERE revoked=0 AND last_seen>? AND session_id<>?',(now-ONLINE_SECONDS,'')).fetchall()
         rows=[r for r in rows if targets=='all' or r['id'] in targets]
         if not rows: return fail('Нет выбранных игроков в сети.',409)
-        if payload['action']!='stop' and any(json.loads(r['status']).get('protocol',1)<PROTOCOL_VERSION for r in rows):
-            return fail(f'Обновите выбранным игрокам клиент до версии {PROTOCOL_VERSION}.',409)
-        if payload['action'] in ('event','start','spin','preview_video'):
+        required_version=PROTOCOL_VERSION if payload['action']=='open_url' else MIN_PROTOCOL_VERSION
+        if payload['action']!='stop' and any(json.loads(r['status']).get('protocol',1)<required_version for r in rows):
+            return fail(f'Обновите выбранным игрокам клиент до версии {required_version}.',409)
+        if payload['action'] in ('event','start','spin','preview_video','open_url'):
             rows=[r for r in rows if r['immune_until']<=now]
             if not rows: return fail('У выбранных игроков иммунитет.',409)
         if payload.get('event') in PVP_EVENTS:

@@ -25,7 +25,7 @@ def setup(config):
     layout.addWidget(QLabel('Ваш ник')); nick=QLineEdit(config.get('username','')); layout.addWidget(nick)
     layout.addWidget(QLabel('Одноразовый код от администратора')); code=QLineEdit(); code.setEchoMode(QLineEdit.EchoMode.Password); layout.addWidget(code)
     consent=QCheckBox('Разрешаю управление событиями на этом ПК.'); layout.addWidget(consent)
-    text=QLabel('Панель может закрывать Dota 2, временно блокировать ввод, выключать монитор и запускать мини-игры. F12 снимает эффекты и закрывает клиент.'); text.setWordWrap(True); layout.addWidget(text)
+    text=QLabel('Панель может закрывать Dota 2, временно блокировать ввод, выключать монитор, запускать мини-игры и открывать ссылки в браузере. F12 снимает эффекты и закрывает клиент.'); text.setWordWrap(True); layout.addWidget(text)
     error=QLabel(); error.setWordWrap(True); layout.addWidget(error)
     buttons=QDialogButtonBox(); accept=buttons.addButton('Подключиться',QDialogButtonBox.ButtonRole.AcceptRole); buttons.addButton('Отмена',QDialogButtonBox.ButtonRole.RejectRole); layout.addWidget(buttons)
     def save():
@@ -40,7 +40,7 @@ def setup(config):
 
 def consent(config):
     box=QMessageBox(); box.setWindowTitle('Разрешить управление?')
-    box.setText(f"Игрок: {config['username']}\nСайт: {config['server']}\n\nРазрешить события рулетки в этом сеансе? Это включает временную блокировку ввода, выключение монитора и закрытие Dota 2.\n\nF12 — снять эффекты и выйти.")
+    box.setText(f"Игрок: {config['username']}\nСайт: {config['server']}\n\nРазрешить события рулетки в этом сеансе? Это включает временную блокировку ввода, выключение монитора, закрытие Dota 2 и открытие ссылок в браузере.\n\nF12 — снять эффекты и выйти.")
     yes=box.addButton('Разрешить на этот запуск',QMessageBox.ButtonRole.AcceptRole)
     box.addButton('Отмена',QMessageBox.ButtonRole.RejectRole); box.exec()
     return box.clickedButton() is yes

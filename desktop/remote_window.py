@@ -3,7 +3,8 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from PyQt6.QtCore import Qt,QTimer
+from PyQt6.QtCore import Qt,QTimer,QUrl
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QCheckBox,QLineEdit,QSlider,QComboBox,QPushButton,QFileDialog
 from protocol import command,settings,DEFAULT_SETTINGS,PROTOCOL_VERSION,PVP_EVENTS
 from debuff_roulette_advanced import MainWindow,RouletteWheel,EFFECTS,bundled_video
@@ -99,7 +100,7 @@ class RemoteWindow(MainWindow):
         try:
             if not self.link.active or self.closed: raise ValueError('Удалённое управление выключено.')
             data=command(item['command']); action=data['action']
-            if action in ('event','start','spin','preview_video') and self.immune():
+            if action in ('event','start','spin','preview_video','open_url') and self.immune():
                 raise ValueError('Действует иммунитет от всех событий.')
             if action=='settings': self.apply_settings(data['settings'])
             elif action=='start': self.start_timer()
@@ -118,6 +119,13 @@ class RemoteWindow(MainWindow):
                 self.remote_settings['music_volume']=data['volume']
                 if self.music: self.music.set_volume(data['volume']/100)
                 self.save_config(); self.note_label.setText(f"Громкость музыки: {data['volume']}%")
+            elif action=='open_url':
+                if self.demo_check.isChecked():
+                    self.note_label.setText('Демо: открытие сайта пропущено — '+data['url'])
+                elif QDesktopServices.openUrl(QUrl(data['url'])):
+                    self.note_label.setText('Ссылка передана браузеру: '+data['url'])
+                else:
+                    raise ValueError('Не удалось открыть браузер. Проверьте браузер по умолчанию в Windows.')
             elif action=='preview_video':
                 if self.demo_check.isChecked(): self.note_label.setText('Демо: предпросмотр не запускается.')
                 else: self.preview_video()

@@ -1,6 +1,8 @@
 """Разрешённые команды и проверка данных — общие для сайта и клиента."""
 import re
 import unicodedata
+import ipaddress
+from urllib.parse import urlsplit, urlunsplit
 
 EVENTS = [
     ('swap','Смена кнопок мыши',20,'Мышь'), ('invert','Инверсия мыши',20,'Мышь'),
@@ -16,7 +18,8 @@ EVENTS = [
     ('music','Музыка',60,'Медиа'), ('bw','Чёрно-белый экран',60,'Экран'),
 ]
 EVENT_IDS = {e[0] for e in EVENTS}
-PROTOCOL_VERSION=3
+PROTOCOL_VERSION=4
+MIN_PROTOCOL_VERSION=3  # Existing commands still work with V3 clients.
 UPGRADER_FILL_SECONDS = 0.6
 UPGRADER_HOLD_SECONDS = 2.0
 UPGRADER_RESULT_SECONDS = UPGRADER_FILL_SECONDS + UPGRADER_HOLD_SECONDS
@@ -27,7 +30,7 @@ for _kind in ('keyboard','mouse','both','tp','window','monitor'):
 DURATION_LIMITS['upgrader']=(3,30)
 DURATION_LIMITS['cubes']=(5,3600)
 DEFAULT_DURATIONS={e[0]:e[2] for e in EVENTS if e[2]}
-ACTIONS = {'event','start','stop','spin','settings','capture_shop','choose_video','preview_video','choose_music','music_volume'}
+ACTIONS = {'event','start','stop','spin','settings','capture_shop','choose_video','preview_video','choose_music','music_volume','open_url'}
 DEFAULT_SETTINGS = {'enabled':[e[0] for e in EVENTS if e[0] not in ('kill','buy')],
                     'volume':65, 'tp_key':'T', 'shop_key':'F4', 'shop_xy':'',
                     'demo':False, 'ai_provider':'gemini','durations':DEFAULT_DURATIONS,'music_track':'default',
@@ -37,6 +40,36 @@ def percent(value,label):
     if type(value) is not int or not 0<=value<=100:
         raise ValueError(f'{label}: целое число от 0 до 100%.')
     return value
+
+def website_url(value):
+    """Validate on both ends; only web URLs may reach the desktop browser handler."""
+    if not isinstance(value,str) or not value or len(value)>2048:
+        raise ValueError('Введите ссылку на сайт длиной до 2048 символов.')
+    if any(ord(c)<32 or ord(c)==127 for c in value) or '\\' in value:
+        raise ValueError('Ссылка содержит недопустимые символы.')
+    value=value.strip()
+    if re.search(r'%(?:0[0-9a-f]|1[0-9a-f]|7f)',value,re.I):
+        raise ValueError('Ссылка содержит управляющие символы.')
+    try:
+        url=urlsplit(value)
+        if url.scheme.lower() not in ('http','https') or not url.hostname:
+            raise ValueError()
+        if url.username is not None or url.password is not None:
+            raise ValueError()
+        host=url.hostname.encode('idna').decode('ascii').lower()
+        if ':' in host:
+            host='['+str(ipaddress.IPv6Address(host))+']'
+        elif len(host)>253 or not all(re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?',part)
+                                      for part in host.rstrip('.').split('.')):
+            raise ValueError()
+        port=url.port
+        if port is not None and not 1<=port<=65535: raise ValueError()
+        authority=host+(f':{port}' if port is not None else '')
+        result=urlunsplit((url.scheme.lower(),authority,url.path,url.query,url.fragment))
+        if len(result)>2048: raise ValueError()
+        return result
+    except (ValueError,UnicodeError):
+        raise ValueError('Нужна ссылка http:// или https:// с корректным адресом сайта, без логина и пароля.') from None
 
 def duration(kind,value):
     if kind not in DURATION_LIMITS: raise ValueError('У этого события нет таймера.')
@@ -76,9 +109,13 @@ def settings(value):
     return out
 
 def command(value):
-    if not isinstance(value,dict) or set(value)-{'action','event','settings','duration','track','chance','volume'}: raise ValueError('Неизвестная команда.')
+    if not isinstance(value,dict) or set(value)-{'action','event','settings','duration','track','chance','volume','url'}: raise ValueError('Неизвестная команда.')
     action=value.get('action')
     if action not in ACTIONS: raise ValueError('Команда не разрешена.')
+    if action=='open_url':
+        if set(value)-{'action','url'}: raise ValueError('Команда открытия сайта принимает только ссылку.')
+        return {'action':action,'url':website_url(value.get('url'))}
+    if 'url' in value: raise ValueError('Ссылка задаётся только для открытия сайта.')
     if action=='music_volume' and set(value)-{'action','volume'}:
         raise ValueError('Команда громкости принимает только процент.')
     if 'chance' in value and not (action=='event' and value.get('event')=='upgrader'):

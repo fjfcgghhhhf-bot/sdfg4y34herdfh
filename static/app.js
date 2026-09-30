@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id), selected=new Set();
 let snapshot=null, initialized=false, pending=false, refreshing=false;
 const csrf=document.querySelector('meta[name="csrf-token"]').content;
-const names={start:'Запустить таймер',stop:'Снять эффекты',spin:'Крутить рулетку',settings:'Настройки',capture_shop:'Запомнить ТП',choose_video:'Выбрать видео',choose_music:'Добавить музыку',music_volume:'Громкость музыки',preview_video:'Предпросмотр видео'};
+const names={start:'Запустить таймер',stop:'Снять эффекты',spin:'Крутить рулетку',settings:'Настройки',capture_shop:'Запомнить ТП',choose_video:'Выбрать видео',choose_music:'Добавить музыку',music_volume:'Громкость музыки',preview_video:'Предпросмотр видео',open_url:'Открыть сайт'};
 const states={queued:'Ожидает',delivered:'Доставлена',accepted:'Принята',rejected:'Отклонена',expired:'Истекла',superseded:'Заменена'};
 const icons={swap:'⇄',invert:'↔',tp:'⌂',window:'▣',video:'▶',keyboard:'⌨',mouse:'◉',both:'⊘',kill:'×',buy:'＋',reverse:'↻',cmd:'>_',monitor:'▰',pong:'Ⅱ',desktop:'▤',cubes:'◆',chess:'♞',ai:'✦',upgrader:'↗',music:'♫',bw:'◐'};
 function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
@@ -11,7 +11,8 @@ async function api(url,data){const r=await fetch(url,{method:data===undefined?'G
 function targets(){return $('allUsers').checked?'all':[...selected];}
 function chosen(){return snapshot?snapshot.clients.filter(c=>c.online&&($('allUsers').checked||selected.has(c.id))):[];}
 function selection(){const players=chosen(),count=players.length;$('selectedCount').textContent=`${count} выбрано`;const available=players.filter(c=>!c.immunity&&(!c.match||c.match.status==='ended'));
- document.querySelectorAll('[data-action],.event-trigger,#saveSettings,#applyMusicVolume').forEach(b=>b.disabled=!count||pending);
+ document.querySelectorAll('[data-action],.event-trigger,#saveSettings,#applyMusicVolume,#openWebsite').forEach(b=>b.disabled=!count||pending);
+ $('websiteRecipients').textContent=count?`Откроется у выбранных игроков: ${count}.`:'Выберите получателей в списке игроков.';
  document.querySelectorAll('[data-pvp]').forEach(b=>{b.disabled=pending||available.length<2||available.length%2!==0||available.length!==count;});
  $('targetLabel').textContent=count?($('allUsers').checked?'Все игроки в сети':players.map(c=>c.name).join(', ')):'Выберите игроков слева';
  const options=new Map([['default','Серёга Пират — Where Is My Mind'],['video','Дорожка Subway Surfers'],['bearwolf','Пенис (BEARWOLF cover)']]);
@@ -64,6 +65,14 @@ $('copyInvite').onclick=async()=>{try{await navigator.clipboard.writeText($('inv
 $('volume').oninput=()=>$('volumeValue').textContent=$('volume').value+'%';
 $('musicVolume').oninput=()=>$('musicVolumeValue').textContent=$('musicVolume').value+'%';
 $('applyMusicVolume').onclick=()=>send({action:'music_volume',volume:Number($('musicVolume').value)});
+$('websiteForm').onsubmit=event=>{
+ event.preventDefault();const input=$('websiteUrl');input.value=input.value.trim();
+ if(!input.reportValidity())return;
+ try{const url=new URL(input.value);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error();}
+ catch{return toast('Введите ссылку http:// или https:// без логина и пароля.');}
+ if(!chosen().length)return toast('Выберите игроков слева.');
+ send({action:'open_url',url:input.value});
+};
 $('saveSettings').onclick=()=>{const durations={};for(const input of document.querySelectorAll('[data-duration]')){if(!input.reportValidity())return;durations[input.dataset.duration]=Number(input.value);}if(!$('upgraderChanceNumber').reportValidity())return;send({action:'settings',settings:{enabled:[...document.querySelectorAll('[data-enabled]:checked')].map(x=>x.dataset.enabled),volume:Number($('volume').value),music_volume:Number($('musicVolume').value),upgrader_chance:Number($('upgraderChanceNumber').value),tp_key:'T',shop_key:$('shopKey').value.toUpperCase(),shop_xy:$('shopXY').value.trim(),demo:$('demo').checked,ai_provider:$('aiProvider').value,durations,music_track:$('musicTrack').value}});};
 $('loadSettings').onclick=()=>{if($('allUsers').checked||selected.size!==1)return toast('Выберите одного игрока.');const c=snapshot.clients.find(x=>selected.has(x.id));config(c.status.settings||snapshot.defaults);toast('Настройки и длительности игрока загружены.');};
 $('logout').onclick=async()=>{try{await api('/logout',{});location.href='/login';}catch(e){toast(e.message);}};

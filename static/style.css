@@ -24,3 +24,5 @@ button{transition:background .18s,transform .18s,box-shadow .18s,border-color .1
 @media(max-width:740px){.music-bar{grid-template-columns:1fr;gap:14px}.music-bar button{justify-self:start}.music-volume-control{margin-top:6px}.music-bar #applyMusicVolume{justify-self:stretch}.chance-percent input[type=number]{width:54px}.chance-heading{align-items:start;flex-wrap:wrap}}
 @media(max-width:360px){.event-grid{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.website-card{border-color:#476052;background:linear-gradient(125deg,#223c32a0,#182536)}.website-card .event-icon{color:var(--accent);background:#344d35}.website-form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px}.website-form label{min-width:0;font-size:12px;color:#c8d9cd}.website-form button{white-space:nowrap}.website-recipients{margin-top:12px;font-size:12px;color:var(--accent)}.website-card .hint{margin-top:7px}
+@media(max-width:740px){.website-form{grid-template-columns:1fr}.website-form button{width:100%}}
