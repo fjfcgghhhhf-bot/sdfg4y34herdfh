@@ -16,6 +16,7 @@ import time
 from typing import Any, Callable
 
 import psutil
+from protocol import PENALTY_SECONDS
 
 
 DURATIONS = {"swap": 20.0, "invert": 20.0, "tp": 6.0, "window": 5.0, "keyboard": 3.0, "mouse": 3.0, "both": 3.0}
@@ -394,19 +395,10 @@ class WindowsController:
         cancel = cancel or threading.Event()
         if cancel.is_set() or self.panic.is_set():
             raise RuntimeError("Эффект отменён.")
-        target = self._target() or Target(0, 0, 0, "desktop")
+        # Legacy command ID retained for saved settings; it never terminates a process.
         if kind == "kill":
-            count = 0
-            for process in psutil.process_iter(["name"]):
-                try:
-                    if cancel.is_set() or self.panic.is_set():
-                        break
-                    if (process.info["name"] or "").casefold() == GAME_NAME:
-                        process.kill()
-                        count += 1
-                except psutil.NoSuchProcess:
-                    pass
-            return f"Закрыто процессов Dota 2: {count}."
+            kind, seconds = "both", PENALTY_SECONDS
+        target = self._target() or Target(0, 0, 0, "desktop")
         if kind in ("tp", "buy"):
             target = self._game_window()
             self._focus_window(target, cancel)

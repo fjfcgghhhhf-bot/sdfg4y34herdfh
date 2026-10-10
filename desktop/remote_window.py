@@ -6,7 +6,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt,QTimer,QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QCheckBox,QLineEdit,QSlider,QComboBox,QPushButton,QFileDialog
-from protocol import command,settings,DEFAULT_SETTINGS,PROTOCOL_VERSION,PVP_EVENTS
+from protocol import command,settings,DEFAULT_SETTINGS,PROTOCOL_VERSION,PVP_EVENTS,PENALTY_SECONDS
 from debuff_roulette_advanced import MainWindow,RouletteWheel,EFFECTS,bundled_video
 from chess_event import ChessChallenge
 from remote_ai import RemoteAIChallenge
@@ -173,7 +173,8 @@ class RemoteWindow(MainWindow):
 
     def begin_spin(self):
         # Let matches and the upgrader's result animation finish before the next spin.
-        if self.immune() or self.match or self.roll_pending or isinstance(self.challenge,Upgrader): return
+        if (self.immune() or self.match or self.roll_pending or isinstance(self.challenge,Upgrader)
+                or getattr(self.controller,'active_kind','')=='both'): return
         super().begin_spin()
 
     def apply_selected(self,index,manual=False):
@@ -277,13 +278,14 @@ class RemoteWindow(MainWindow):
 
     def penalty(self,owner,result,reason):
         if result!='loss' or self.immune() or owner.is_set() or self.closed or self.controller.panic.is_set() or self.demo_check.isChecked(): return
-        def close_game():
+        self.effect_title='Поражение · блок ввода на 30 секунд'
+        def block_input():
             try:
                 if self.immune() or owner.is_set() or not self.link.active: return
-                message=self.controller.activate('kill',cancel=owner)
-            except Exception: message='Не удалось закрыть Dota 2.'
+                message=self.controller.activate('both',cancel=owner,duration=PENALTY_SECONDS)
+            except Exception: message='Не удалось включить временный блок ввода.'
             self.messages.put((owner,reason+' '+message))
-        threading.Thread(target=close_game,daemon=True,name='RemoteMatchLoss').start()
+        threading.Thread(target=block_input,daemon=True,name='RemoteMatchLoss').start()
 
     def challenge_finished(self,challenge,owner,result,reason):
         if self.challenge is not challenge: return

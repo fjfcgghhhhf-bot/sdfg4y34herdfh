@@ -9,7 +9,7 @@ EVENTS = [
     ('tp','ТП на базу + блок ввода',6,'Игра'), ('window','Смена окна + блок ввода',5,'Окна'),
     ('video','Видео со звуком',30,'Оверлеи'), ('keyboard','Блок клавиатуры',3,'Ввод'),
     ('mouse','Блок мыши',3,'Ввод'), ('both','Блок клавиатуры и мыши',3,'Ввод'),
-    ('kill','Закрыть Dota 2',0,'Игра'), ('buy','Купить 1–10 ТП',0,'Игра'),
+    ('kill','Блок всего ввода · 30 секунд',30,'Ввод'), ('buy','Купить 1–10 ТП',0,'Игра'),
     ('reverse','Переворот экрана',30,'Экран'), ('cmd','Консоль по центру',10,'Окна'),
     ('monitor','Выключение монитора',10,'Экран'), ('pong','Пинг-понг · 1 на 1',0,'Мини-игры'),
     ('desktop','Второй рабочий стол',0,'Окна'), ('cubes','Прыгающие красные кубы',40,'Оверлеи'),
@@ -18,8 +18,9 @@ EVENTS = [
     ('music','Музыка',60,'Медиа'), ('bw','Чёрно-белый экран',60,'Экран'),
 ]
 EVENT_IDS = {e[0] for e in EVENTS}
-PROTOCOL_VERSION=4
-MIN_PROTOCOL_VERSION=3  # Existing commands still work with V3 clients.
+PROTOCOL_VERSION=5
+MIN_PROTOCOL_VERSION=5  # Old clients still close the game on defeat: disconnect them.
+PENALTY_SECONDS=30
 UPGRADER_FILL_SECONDS = 0.6
 UPGRADER_HOLD_SECONDS = 2.0
 UPGRADER_RESULT_SECONDS = UPGRADER_FILL_SECONDS + UPGRADER_HOLD_SECONDS
@@ -29,6 +30,7 @@ for _kind in ('keyboard','mouse','both','tp','window','monitor'):
     DURATION_LIMITS[_kind]=(1,60)
 DURATION_LIMITS['upgrader']=(3,30)
 DURATION_LIMITS['cubes']=(5,3600)
+DURATION_LIMITS['kill']=(PENALTY_SECONDS,PENALTY_SECONDS)
 DEFAULT_DURATIONS={e[0]:e[2] for e in EVENTS if e[2]}
 ACTIONS = {'event','start','stop','spin','settings','capture_shop','choose_video','preview_video','choose_music','music_volume','open_url'}
 DEFAULT_SETTINGS = {'enabled':[e[0] for e in EVENTS if e[0] not in ('kill','buy')],

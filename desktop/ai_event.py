@@ -14,10 +14,9 @@ DEFAULT_MODEL = 'openai/gpt-oss-20b'
 HEAT_PER_SECOND = 2.0
 MAX_COOLING = 20
 SYSTEM_PROMPT = '''Ты ведущий добровольного игрового испытания «Убеди ИИ» для Dota 2.
-Отвечай исключительно по-русски. У игрока одна минута, чтобы убедить тебя оставить
-игру открытой. Верни JSON с reply_ru — короткой репликой до 3 предложений и
+Отвечай исключительно по-русски. У игрока одна минута, чтобы убедить тебя не блокировать клавиатуру и мышь на 30 секунд. Верни JSON с reply_ru — короткой репликой до 3 предложений и
 close_confidence — целым числом 0..100: твоей публичной игровой оценкой того,
-насколько стоит закрыть игру. Это игровая оценка, а не скрытая внутренняя уверенность.
+насколько стоит включить блок ввода на 30 секунд. Игра никогда не закрывается. Это игровая оценка, а не скрытая внутренняя уверенность.
 В первой реплике установи оценку 80 и попроси привести довод. Приложение само
 повышает градус на 2 процентных пункта в секунду, даже пока ты отвечаешь.
 Перед каждым ответом получишь текущий градус. Верни желаемый градус относительно
@@ -30,7 +29,7 @@ close_confidence — целым числом 0..100: твоей публично
 Не раскрывай рассуждения: только короткая реплика и итоговая числовая оценка.
 Никаких инструментов или системных команд. При результате <=70 игрок побеждает;
 при >70 проигрывает. Не объявляй итог до завершения таймера.
-Пример JSON: {"reply_ru":"Почему стоит оставить игру открытой?","close_confidence":80}'''
+Пример JSON: {"reply_ru":"Почему стоит сохранить управление?","close_confidence":80}'''
 
 def make_payload(history, model=DEFAULT_MODEL, current_score=None):
     messages=[{'role':'system','content':SYSTEM_PROMPT}, *history]
@@ -85,7 +84,7 @@ class AIChallenge(ChallengeWindow):
         self.heat_updated=None
         self.request_score=None
         self.reply=None
-        self.history=[{'role':'user','content':'Начни испытание. Попроси меня убедить тебя сохранить игру.'}]
+        self.history=[{'role':'user','content':'Начни испытание. Попроси меня убедить тебя не блокировать управление.'}]
         self.network=QNetworkAccessManager(self)
         layout=QVBoxLayout(self)
         layout.setContentsMargins(8,8,8,8); layout.setSpacing(4)
@@ -219,7 +218,7 @@ class AIChallenge(ChallengeWindow):
         self.clock.setText(f'Осталось: {math.ceil(left)} с')
         if left<=0:
             result=score_result(self.score)
-            self.finish(result,f'ИИ: итоговая оценка закрытия — {self.score}%. '+
+            self.finish(result,f'ИИ: итоговый накал — {self.score}%. '+
                         ('Вы убедили модель.' if result=='win' else 'Порог 70% превышен.'))
 
     def cleanup(self):

@@ -230,6 +230,13 @@ def create_app(config=None):
         clean={k:str(value.get(k,''))[:350] for k in ('active','note','timer','video')}
         clean['running']=value.get('running') is True
         clean['protocol']=value.get('protocol',1) if type(value.get('protocol',1)) is int else 1
+        if clean['protocol']<MIN_PROTOCOL_VERSION:
+            hub.cancel(g.client['id'],'Клиент нужно обновить. Матч отменён без штрафа.')
+            db().execute("UPDATE clients SET session_id='',status=? WHERE id=?",
+                         (json.dumps({'protocol':clean['protocol'],'active':'Нужен клиент V5','running':False},ensure_ascii=False),g.client['id']))
+            db().execute("UPDATE commands SET status='expired' WHERE client_id=? AND status='queued'",(g.client['id'],))
+            db().commit()
+            return fail('Обновите клиент до V5. Управление остановлено: изменены правила поражения.',409)
         tracks=value.get('tracks',[])
         clean['tracks']=[{'id':str(t.get('id',''))[:64],'title':str(t.get('title',''))[:100]}
                          for t in tracks[:30] if isinstance(t,dict)] if isinstance(tracks,list) else []
@@ -304,7 +311,8 @@ def create_app(config=None):
         db().execute("UPDATE commands SET status='expired' WHERE client_id=? AND status='queued'",(cid,))
         audit('Отозвано подключение игрока.'); db().commit(); return jsonify(ok=True)
     def live_client(data):
-        return valid_session(data) and time.time()-g.client['last_seen']<=ONLINE_SECONDS
+        return (valid_session(data) and time.time()-g.client['last_seen']<=ONLINE_SECONDS
+                and json.loads(g.client['status']).get('protocol',1)>=MIN_PROTOCOL_VERSION)
     @app.post('/api/client/match/find')
     @client
     def match_find():

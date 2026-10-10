@@ -81,8 +81,10 @@ class MatchHub:
             m.finish('Пауза связи. Матч отменён без поражения.'); return
         while elapsed>0 and m.status=='active':
             dt=min(elapsed,1/120); elapsed-=dt
+            step_time=now-elapsed
             for i in (0,1):
-                direction=m.directions[i] if now-m.input_at[i]<.6 else 0
+                # Integrate input while its lease was valid, even if this HTTP reply was delayed.
+                direction=m.directions[i] if step_time-m.input_at[i]<.6 else 0
                 m.paddles[i]=min(400,max(50,m.paddles[i]+direction*320*dt))
             old=m.x; m.x+=m.vx*dt; m.y+=m.vy*dt
             if m.y<8: m.y=16-m.y; m.vy=abs(m.vy)

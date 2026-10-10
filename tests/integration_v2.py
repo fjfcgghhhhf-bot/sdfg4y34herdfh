@@ -82,7 +82,7 @@ def main():
                 w.match.select_square(chess.parse_square(uci[:2])); w.match.select_square(chess.parse_square(uci[2:]))
                 until(lambda:len(app.extensions['matches'].current(w.config['client_id']).board.move_stack)>previous if app.extensions['matches'].current(w.config['client_id']) else w.match is None)
             until(lambda:all(w.match is None for w in windows) and len(by_side[0].controller.calls)==1)
-            assert by_side[0].controller.calls[0][0]==('kill',) and not by_side[1].controller.calls
+            assert by_side[0].controller.calls[0][0]==('both',) and by_side[0].controller.calls[0][1]['duration']==30 and not by_side[1].controller.calls
             for w in windows: w.controller.calls.clear()
             command({'action':'event','event':'pong'})
             until(lambda:all(w.match and w.match.state['status']=='active' for w in windows))
@@ -90,7 +90,8 @@ def main():
             with hub.lock:
                 m=hub.current(first.config['client_id']); loser=m.players[0]; m.x=-7; m.vx=-210; m.y=10
             until(lambda:all(w.match is None for w in windows) and sum(len(w.controller.calls) for w in windows)==1)
-            assert next(w for w in windows if w.config['client_id']==loser).controller.calls[0][0]==('kill',)
+            penalty=next(w for w in windows if w.config['client_id']==loser).controller.calls[0]
+            assert penalty[0]==('both',) and penalty[1]['duration']==30
             for w in windows: w.controller.calls.clear()
             command({'action':'event','event':'chess'}); until(lambda:all(w.match is not None for w in windows))
             windows[0].stop_timer(); until(lambda:all(w.match is None for w in windows))

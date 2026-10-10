@@ -120,7 +120,7 @@ class PongOverlay(QWidget):
                    f'ПИНГ-ПОНГ  ·  {math.ceil(self.remaining())} СЕК')
         p.setFont(QFont('Segoe UI', 9))
         p.drawText(QRectF(10, 40, self.width()-20, 40), Qt.AlignmentFlag.AlignCenter,
-                   '↑ / ↓ — ракетка  ·  F12 — выход\nВыдержи 30 секунд. Промах — закрытие Dota 2.')
+                   '↑ / ↓ — ракетка  ·  F12 — выход\nВыдержи 30 секунд. Промах — блок ввода на 30 с.')
         p.translate(12, 88)
         p.scale(max(1, self.width()-24)/800, max(1, self.height()-102)/600)
         p.setPen(QPen(QColor('#485979'), 3))

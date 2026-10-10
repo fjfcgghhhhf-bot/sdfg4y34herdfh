@@ -62,7 +62,7 @@ EFFECTS = (
     Effect("keyboard", "Блокировка клавиатуры", "БЛОК\nКЛАВИШ", 3, "#6b4aa4"),
     Effect("mouse", "Блокировка мыши", "БЛОК\nМЫШИ", 3, "#28657c"),
     Effect("both", "Блокировка клавиатуры и мыши", "БЛОК\nВВОДА", 3, "#64773d"),
-    Effect("kill", "Закрыть Dota 2", "ЗАКРЫТЬ\nDOTA 2", 0, "#ab3d45"),
+    Effect("kill", "Блок всего ввода · 30 секунд", "БЛОК ВВОДА\n30 СЕК", 30, "#ab3d45"),
     Effect("buy", "Купить случайно 1–10 ТП", "КУПИТЬ\n1–10 ТП", 0, "#89753a"),
     Effect("reverse", "Переворот экрана", "ПЕРЕВОРОТ\nЭКРАНА", 30, "#357b70"),
     Effect("cmd", "Консоль по центру экрана", "КОНСОЛЬ", 10, "#407d42"),
@@ -79,7 +79,7 @@ EFFECTS = (
 
 WHEEL_LABELS = {'swap':'Кнопки', 'invert':'Инверсия', 'tp':'ТП на базу',
                 'window':'Смена окна', 'video':'Видео', 'keyboard':'Клавиатура',
-                'mouse':'Мышь', 'both':'Блок ввода', 'kill':'Закрыть Dota',
+                'mouse':'Мышь', 'both':'Блок ввода', 'kill':'Блок ввода 30 с',
                 'buy':'Купить ТП', 'reverse':'Переворот', 'cmd':'Консоль',
                 'monitor':'Монитор', 'pong':'Пинг-понг', 'desktop':'Стол 2',
                 'cubes':'Кубы', 'chess':'Шахматы', 'ai':'Убеди ИИ',
@@ -567,13 +567,13 @@ class MainWindow(QMainWindow):
         self.active_label.setText(labels.get(result, 'Испытание завершено'))
         if result != 'loss' or owner.is_set() or self.closed or self.controller.panic.is_set():
             return
-        def close_game():
+        def block_input():
             try:
-                result_text = self.controller.activate('kill', cancel=owner)
+                result_text = self.controller.activate('both', cancel=owner, duration=30)
             except Exception:
-                result_text = 'Не удалось закрыть Dota 2. Проверьте права приложения.'
+                result_text = 'Не удалось включить блок ввода. Проверьте права приложения.'
             self.messages.put((owner, reason+' '+result_text))
-        threading.Thread(target=close_game, daemon=True, name='ChallengeLoss').start()
+        threading.Thread(target=block_input, daemon=True, name='ChallengeLoss').start()
 
     def cubes_finished(self, cubes: RedCubes) -> None:
         if self.cubes is cubes:
@@ -592,7 +592,7 @@ class MainWindow(QMainWindow):
         try:
             self.controller.start_pong(owner, 30.0)
             pong.start()
-            self.note_label.setText("Пинг-понг: ↑ / ↓, продержитесь 30 секунд. Промах закрывает Dota 2. F12 — выход.")
+            self.note_label.setText("Пинг-понг: ↑ / ↓, продержитесь 30 секунд. Промах блокирует ввод на 30 секунд. F12 — выход.")
         except Exception as exc:
             self.stop_effect()
             self.note_label.setText(f"Пинг-понг не запущен: {exc}")
@@ -611,13 +611,13 @@ class MainWindow(QMainWindow):
             self.note_label.setText("30 секунд пройдены. Мини-игра закрыта.")
             return
         self.active_label.setText("Пинг-понг: поражение")
-        def close_game():
+        def block_input():
             try:
-                message = self.controller.activate("kill", cancel=owner)
+                message = self.controller.activate("both", cancel=owner, duration=30)
             except Exception as exc:
-                message = f"Не удалось закрыть Dota 2: {exc}"
+                message = f"Не удалось включить блок ввода: {exc}"
             self.messages.put((owner, message))
-        threading.Thread(target=close_game, daemon=True, name="PongLoss").start()
+        threading.Thread(target=block_input, daemon=True, name="PongLoss").start()
 
     def preview_video(self) -> None:
         self.stop_effect()

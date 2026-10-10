@@ -55,7 +55,7 @@ class WebsiteDeliveryTests(unittest.TestCase):
         self.assertEqual(self.poll(a,ha,sa).json['commands'][0]['command'],payload)
         self.assertEqual(self.poll(b,hb,sb).json['commands'][0]['command'],payload)
 
-    def test_immunity_skips_url_and_v3_keeps_existing_commands(self):
+    def test_immunity_skips_url_and_old_clients_cannot_trigger_commands(self):
         a,ha,sa,aid,_=self.enroll('Игрок')
         payload={'action':'open_url','url':'https://example.com/'}
         self.sql('UPDATE clients SET immune_until=? WHERE id=?',(time.time()+600,aid))
@@ -63,8 +63,8 @@ class WebsiteDeliveryTests(unittest.TestCase):
         self.sql('UPDATE clients SET immune_until=0,status=? WHERE id=?',(json.dumps({'protocol':3}),aid))
         r=self.post('/api/admin/command',{'targets':[aid],'command':payload})
         self.assertEqual(r.status_code,409)
-        self.assertIn('4',r.json['error'])
-        self.assertEqual(self.post('/api/admin/command',{'targets':[aid],'command':{'action':'start'}}).status_code,200)
+        self.assertIn('5',r.json['error'])
+        self.assertEqual(self.post('/api/admin/command',{'targets':[aid],'command':{'action':'start'}}).status_code,409)
 
     def test_invalid_and_unauthorized_commands_are_not_queued(self):
         _,_,_,aid,_=self.enroll('Игрок')
