@@ -149,7 +149,7 @@ def create_app(config=None):
         return fail('Ошибка сервера. Эффекты будут сняты при потере связи.',500)
 
     @app.get('/healthz')
-    def health(): return jsonify(status='работает')
+    def health(): return jsonify(status='работает',protocol=PROTOCOL_VERSION)
     @app.route('/login',methods=['GET','POST'])
     def login():
         session.setdefault('csrf',secrets.token_urlsafe(32))
