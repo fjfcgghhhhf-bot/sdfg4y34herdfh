@@ -233,10 +233,10 @@ def create_app(config=None):
         if clean['protocol']<MIN_PROTOCOL_VERSION:
             hub.cancel(g.client['id'],'Клиент нужно обновить. Матч отменён без штрафа.')
             db().execute("UPDATE clients SET session_id='',status=? WHERE id=?",
-                         (json.dumps({'protocol':clean['protocol'],'active':'Нужен клиент V5','running':False},ensure_ascii=False),g.client['id']))
+                         (json.dumps({'protocol':clean['protocol'],'active':f'Нужен клиент V{MIN_PROTOCOL_VERSION}','running':False},ensure_ascii=False),g.client['id']))
             db().execute("UPDATE commands SET status='expired' WHERE client_id=? AND status='queued'",(g.client['id'],))
             db().commit()
-            return fail('Обновите клиент до V5. Управление остановлено: изменены правила поражения.',409)
+            return fail(f'Обновите клиент до V{MIN_PROTOCOL_VERSION}. Управление остановлено: изменены правила матчей.',409)
         tracks=value.get('tracks',[])
         clean['tracks']=[{'id':str(t.get('id',''))[:64],'title':str(t.get('title',''))[:100]}
                          for t in tracks[:30] if isinstance(t,dict)] if isinstance(tracks,list) else []

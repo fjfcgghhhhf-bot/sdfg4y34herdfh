@@ -11,11 +11,12 @@ class PongView(QWidget):
     def __init__(self):
         super().__init__(); self.snapshot=None; self.received=0; self.side=0
         self.local_y=None; self.direction=0; self.predicted_at=time.monotonic()
+        self.playing=False
         self.setMinimumSize(180,100)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     def predict(self):
         now=time.monotonic(); dt=min(.1,max(0,now-self.predicted_at)); self.predicted_at=now
-        if self.local_y is not None:
+        if self.playing and self.local_y is not None:
             self.local_y=min(400,max(50,self.local_y+self.direction*320*dt))
     def set_direction(self,direction):
         self.predict(); self.direction=direction; self.update()
@@ -31,7 +32,7 @@ class PongView(QWidget):
         p.scale(self.width()/800,self.height()/450)
         p.setPen(QPen(QColor('#303e58'),2,Qt.PenStyle.DashLine)); p.drawLine(400,0,400,450)
         if not self.snapshot: return
-        state=self.snapshot; dt=min(.12,max(0,time.monotonic()-self.received))
+        state=self.snapshot; dt=min(.12,max(0,time.monotonic()-self.received)) if self.playing else 0
         p.setPen(Qt.PenStyle.NoPen)
         for i,x in enumerate((18,770)):
             p.setBrush(QColor('#b8f36c' if i==self.side else '#c8a6ff'))
@@ -50,8 +51,13 @@ class Multiplayer(ChallengeWindow):
         self.state=None; self.pending=False; self.direction=0; self.sequence=0; self.last_reply=time.monotonic()
         self.scheduled_move=None; self.frame=-1; self.keys=set()
         self.move_in_flight=False
+        self.ready_pending=False
         layout=QVBoxLayout(self); layout.setContentsMargins(8,8,8,8); layout.setSpacing(4)
+        self.add_drag_header(layout)
         self.heading=QLabel('  против  '.join(state['players'])); self.heading.setWordWrap(True); layout.addWidget(self.heading)
+        self.ready_label=QLabel(); self.ready_label.setWordWrap(True)
+        self.ready_label.setStyleSheet('background:#263b31;color:#c5f48e;padding:9px;border-radius:6px;font-weight:600;')
+        layout.addWidget(self.ready_label)
         self.info=QLabel(); self.info.setWordWrap(True); layout.addWidget(self.info)
         if self.kind=='chess':
             self.board=chess.Board(); self.view=BoardView(self.board)
@@ -71,9 +77,8 @@ class Multiplayer(ChallengeWindow):
                 button.pressed.connect(lambda k=key:self.key_state(k,True)); button.released.connect(lambda k=key:self.key_state(k,False)); row.addWidget(button)
         stop=QPushButton('Отменить · Esc'); stop.clicked.connect(self.stop); row.addWidget(stop); layout.addLayout(row)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        # Arrow events must also reach the game when a child button has focus.
-        if self.kind=='pong':
-            for widget in [self,*self.findChildren(QWidget)]: widget.installEventFilter(self)
+        # Space/arrow events also reach the game while a child has focus.
+        for widget in [self,*self.findChildren(QWidget)]: widget.installEventFilter(self)
         self.network_timer=QTimer(self); self.network_timer.setInterval(70 if self.kind=='pong' else 300)
         self.network_timer.timeout.connect(self.send_state)
         self.timer.setInterval(16)
@@ -88,17 +93,26 @@ class Multiplayer(ChallengeWindow):
         if state['status']=='ended':
             result='loss' if state['loser'] is True else 'win' if state['loser'] is False else 'cancel'
             self.finish(result,state['reason']); return
+        waiting=state['status']=='waiting'
+        self.ready_label.setVisible(waiting)
+        if waiting:
+            ready=state.get('ready',[False,False])
+            mine=ready[self.side]; other=ready[1-self.side]
+            self.ready_label.setText(('Вы готовы. Ждём пробел соперника.' if mine else
+                                     'Нажмите ПРОБЕЛ в этом окне, когда будете готовы.')+
+                                    f'\nГотовы: {sum(ready)}/2 · Соперник '+('готов' if other else 'ещё не готов'))
         if self.kind=='chess':
             if self.board.fen()!=state['fen']:
                 self.board.set_fen(state['fen']); self.view.selected=None; self.view.update()
             if self.scheduled_move and self.scheduled_move[1]!=state['revision']:
                 self.scheduled_move=None
             turn='Ваш ход' if self.board.turn==(self.side==0) else 'Ход соперника'
-            self.info.setText('Подключение соперника…' if state['status']=='waiting' else
+            self.info.setText('Партия начнётся после готовности обоих игроков.' if waiting else
                               ('Вы — белые. ' if self.side==0 else 'Вы — чёрные. ')+turn+'. Без таймера. Поражение — блок ввода на 30 с.')
         else:
+            self.view.playing=not waiting
             self.view.receive_snapshot(state['pong'],elapsed)
-            self.info.setText('Подключение соперника…' if state['status']=='waiting' else
+            self.info.setText('Мяч неподвижен до готовности обоих игроков.' if waiting else
                              ('Ваша ракетка слева' if self.side==0 else 'Ваша ракетка справа')+' · ↑ / ↓ · промах — блок ввода на 30 с')
     def send_state(self,force_input=False):
         # Key edges use their own requests; an outstanding poll cannot eat a short tap.
@@ -121,6 +135,19 @@ class Multiplayer(ChallengeWindow):
             if payload['action']=='move': self.move_in_flight=False
             if not self.done: self.finish('cancel',reason+' Матч отменён без поражения.')
         self.link.post('/api/client/match',payload,received,failed)
+    def mark_ready(self):
+        if (self.done or self.ready_pending or not self.link.active or not self.state
+                or self.state['status']!='waiting' or self.state.get('ready',[False,False])[self.side]): return
+        self.ready_pending=True
+        self.ready_label.setText('Отправляем готовность…')
+        def received(data,elapsed):
+            self.ready_pending=False
+            if not self.done:
+                self.last_reply=time.monotonic(); self.receive(data.get('match'),elapsed)
+        def failed(reason):
+            self.ready_pending=False
+            if not self.done: self.finish('cancel',reason+' Матч отменён без штрафа.')
+        self.link.post('/api/client/match',{'session_id':self.link.session_id,'id':self.match_id,'action':'ready'},received,failed)
     def select_square(self,square):
         if self.done or not self.state or self.state['status']!='active' or self.scheduled_move or self.move_in_flight: return
         if self.board.turn!=(self.side==0): return
@@ -135,7 +162,8 @@ class Multiplayer(ChallengeWindow):
         if move in self.board.legal_moves:
             self.scheduled_move=(move.uci(),self.state['revision']); self.send_state()
     def key_state(self,key,down):
-        if self.done or self.kind!='pong' or key not in (Qt.Key.Key_Up,Qt.Key.Key_Down): return
+        if (self.done or self.kind!='pong' or not self.state or self.state['status']!='active'
+                or key not in (Qt.Key.Key_Up,Qt.Key.Key_Down)): return
         previous=self.direction
         if down: self.keys.add(key)
         else: self.keys.discard(key)
@@ -143,6 +171,9 @@ class Multiplayer(ChallengeWindow):
         self.view.set_direction(self.direction)
         if self.direction!=previous: self.send_state(force_input=True)
     def eventFilter(self,watched,event):
+        if event.type() in (QEvent.Type.ShortcutOverride,QEvent.Type.KeyPress,QEvent.Type.KeyRelease) and event.key()==Qt.Key.Key_Space:
+            if event.type()==QEvent.Type.KeyPress and not event.isAutoRepeat(): self.mark_ready()
+            event.accept(); return True
         if self.kind=='pong' and event.type() in (QEvent.Type.ShortcutOverride,QEvent.Type.KeyPress,QEvent.Type.KeyRelease):
             if event.key() in (Qt.Key.Key_Up,Qt.Key.Key_Down):
                 if event.type()!=QEvent.Type.ShortcutOverride and not event.isAutoRepeat():

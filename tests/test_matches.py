@@ -7,7 +7,7 @@ from matches import MatchHub
 class MatchTests(unittest.TestCase):
     def start(self,kind):
         hub=MatchHub(); mid=hub.create(kind,('a','b'),('Первый','Второй'))
-        hub.action('a',mid,{}); hub.action('b',mid,{})
+        hub.action('a',mid,{'action':'ready'}); hub.action('b',mid,{'action':'ready'})
         self.assertEqual(hub.view('a')['status'],'active')
         return hub,mid,hub.current('a')
     def test_chess_mate_only_loser_and_revision(self):

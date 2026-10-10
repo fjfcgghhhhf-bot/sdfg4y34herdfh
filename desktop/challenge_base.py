@@ -2,7 +2,34 @@
 import time
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut, QCursor
-from PyQt6.QtWidgets import QWidget, QApplication
+from PyQt6.QtWidgets import QWidget, QApplication, QLabel
+
+
+class DragHeader(QLabel):
+    """Drag only the header, so board clicks and chat text selection stay intact."""
+    def __init__(self, window, title):
+        super().__init__('⠿  '+title, window)
+        self.owner=window; self.offset=None
+        self.setWordWrap(True)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setToolTip('Перетащите окно за эту панель в любое место экрана.')
+        self.setStyleSheet('background:#273449;color:#dcebcf;border-radius:6px;padding:7px;font-weight:600;')
+
+    def mousePressEvent(self,event):
+        if event.button()==Qt.MouseButton.LeftButton:
+            self.offset=event.globalPosition().toPoint()-self.owner.frameGeometry().topLeft()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor); event.accept()
+        else: super().mousePressEvent(event)
+
+    def mouseMoveEvent(self,event):
+        if self.offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.owner.move(event.globalPosition().toPoint()-self.offset); event.accept()
+        else: super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self,event):
+        if event.button()==Qt.MouseButton.LeftButton:
+            self.offset=None; self.setCursor(Qt.CursorShape.OpenHandCursor); event.accept()
+        else: super().mouseReleaseEvent(event)
 
 
 class ChallengeWindow(QWidget):
@@ -27,6 +54,11 @@ class ChallengeWindow(QWidget):
     def start_clock(self):
         self.deadline = time.monotonic()+self.duration
         self.timer.start()
+
+    def add_drag_header(self,layout,title=None):
+        self.drag_header=DragHeader(self,title or self.windowTitle())
+        layout.addWidget(self.drag_header)
+        return self.drag_header
 
     def remaining(self):
         return max(0, self.deadline-time.monotonic()) if self.deadline and not self.done else 0

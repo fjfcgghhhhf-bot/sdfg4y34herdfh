@@ -34,7 +34,7 @@ class PvpInputTests(unittest.TestCase):
     def setUpClass(cls): cls.app=QApplication.instance() or QApplication([])
     def window(self,kind,side=0):
         hub=MatchHub(); mid=hub.create(kind,('a','b'),('Первый','Второй'))
-        hub.action('a',mid,{}); hub.action('b',mid,{})
+        hub.action('a',mid,{'action':'ready'}); hub.action('b',mid,{'action':'ready'})
         link=DelayedLink(); window=Multiplayer(link,hub.view(('a','b')[side]))
         window.resize(540,420); window.show(); self.app.processEvents()
         self.addCleanup(window.close)
@@ -97,7 +97,7 @@ class PvpInputTests(unittest.TestCase):
 class PongLatencyTests(unittest.TestCase):
     def test_delayed_tick_integrates_input_before_lease_expires(self):
         hub=MatchHub(); mid=hub.create('pong',('a','b'),('А','Б'))
-        hub.action('a',mid,{}); hub.action('b',mid,{})
+        hub.action('a',mid,{'action':'ready'}); hub.action('b',mid,{'action':'ready'})
         m=hub.current('a'); now=time.monotonic()
         m.last=now; m.input_at[0]=now; m.directions[0]=-1; m.vx=0; m.vy=0
         hub._advance_pong(m,now+.7)
@@ -105,7 +105,7 @@ class PongLatencyTests(unittest.TestCase):
         self.assertEqual(m.status,'active')
     def test_out_of_order_state_does_not_undo_new_input(self):
         hub=MatchHub(); mid=hub.create('pong',('a','b'),('А','Б'))
-        hub.action('a',mid,{}); hub.action('b',mid,{})
+        hub.action('a',mid,{'action':'ready'}); hub.action('b',mid,{'action':'ready'})
         hub.action('a',mid,{'direction':-1,'sequence':3})
         hub.action('a',mid,{'direction':0,'sequence':2})
         self.assertEqual(hub.current('a').directions[0],-1)

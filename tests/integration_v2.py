@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT/'desktop'))
 import chess
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, Qt
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 from werkzeug.serving import make_server
 from integration_client import Quiet,Controller,MemoryStore
@@ -74,6 +75,11 @@ def main():
             until(lambda:music.volumes[-1]==.81)
             assert windows[0].music is music and not music.done
             command({'action':'event','event':'chess'})
+            until(lambda:all(w.match and w.match.state['status']=='waiting' for w in windows))
+            QTest.keyClick(windows[0].match,Qt.Key.Key_Space)
+            until(lambda:sum(windows[0].match.state['ready'])==1)
+            assert all(w.match.state['status']=='waiting' for w in windows)
+            QTest.keyClick(windows[1].match,Qt.Key.Key_Space)
             until(lambda:all(w.match and w.match.state['status']=='active' for w in windows))
             by_side={w.match.side:w for w in windows}
             for side,uci in [(0,'f2f3'),(1,'e7e5'),(0,'g2g4'),(1,'d8h4')]:
@@ -85,6 +91,11 @@ def main():
             assert by_side[0].controller.calls[0][0]==('both',) and by_side[0].controller.calls[0][1]['duration']==30 and not by_side[1].controller.calls
             for w in windows: w.controller.calls.clear()
             command({'action':'event','event':'pong'})
+            until(lambda:all(w.match and w.match.state['status']=='waiting' for w in windows))
+            QTest.keyClick(windows[0].match,Qt.Key.Key_Space)
+            until(lambda:sum(windows[0].match.state['ready'])==1)
+            assert all(w.match.state['status']=='waiting' for w in windows)
+            QTest.keyClick(windows[1].match,Qt.Key.Key_Space)
             until(lambda:all(w.match and w.match.state['status']=='active' for w in windows))
             first=windows[0]; hub=app.extensions['matches']
             with hub.lock:

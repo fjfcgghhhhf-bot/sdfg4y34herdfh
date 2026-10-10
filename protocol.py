@@ -18,8 +18,8 @@ EVENTS = [
     ('music','Музыка',60,'Медиа'), ('bw','Чёрно-белый экран',60,'Экран'),
 ]
 EVENT_IDS = {e[0] for e in EVENTS}
-PROTOCOL_VERSION=5
-MIN_PROTOCOL_VERSION=5  # Old clients still close the game on defeat: disconnect them.
+PROTOCOL_VERSION=6
+MIN_PROTOCOL_VERSION=6  # Both clients must support explicit match readiness.
 PENALTY_SECONDS=30
 UPGRADER_FILL_SECONDS = 0.6
 UPGRADER_HOLD_SECONDS = 2.0

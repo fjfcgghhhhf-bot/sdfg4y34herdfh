@@ -18,7 +18,7 @@ class Match:
     seen:dict=field(default_factory=dict)
     status:str='waiting'
     loser:str|None=None
-    reason:str='Подключение соперника…'
+    reason:str='Ожидание готовности: оба игрока должны нажать пробел.'
     board:chess.Board=field(default_factory=chess.Board)
     revision:int=0
     ended:float=0.0
@@ -66,8 +66,11 @@ class MatchHub:
     def _maintenance(self):
         now=time.monotonic()
         for m in list(self.matches.values()):
-            if m.status=='waiting' and now-m.created>20:
-                m.finish('Соперник не открыл матч. Отмена без поражения.')
+            if m.status=='waiting':
+                if any(cid not in m.seen for cid in m.players) and now-m.created>20:
+                    m.finish('Соперник не открыл матч. Отмена без поражения.')
+                elif any(now-seen>8 for seen in m.seen.values()):
+                    m.finish('Связь с игроком потеряна. Матч отменён без поражения.')
             elif m.status=='active' and any(now-m.seen.get(cid,m.created)>8 for cid in m.players):
                 m.finish('Связь с игроком потеряна. Матч отменён без поражения.')
             if m.status=='ended' and now-m.ended>300:
@@ -104,6 +107,7 @@ class MatchHub:
             i=m.players.index(cid)
             return {'id':m.id,'kind':m.kind,'status':m.status,'reason':m.reason,'revision':m.revision,
                     'players':list(m.names),'side':i,'loser':m.loser==cid if m.loser else None,'frame':m.last,
+                    'ready':[player in m.ready for player in m.players],
                     'fen':m.board.fen() if m.kind=='chess' else None,
                     'pong':{'x':m.x,'y':m.y,'vx':m.vx,'vy':m.vy,'paddles':m.paddles.copy()}}
     def action(self,cid,mid,data):
@@ -114,9 +118,13 @@ class MatchHub:
             action=data.get('action','state')
             if action=='cancel': self.cancel(cid)
             if m.status=='waiting':
-                m.ready.add(cid)
-                if len(m.ready)==2:
-                    m.status='active'; m.reason='Матч начался'; m.last=now; m.revision+=1
+                # Polls, clicks and movement never mark a player ready.
+                if action=='ready' and cid not in m.ready:
+                    m.ready.add(cid); m.revision+=1
+                    if len(m.ready)==2:
+                        m.status='active'; m.reason='Оба игрока готовы. Матч начался.'
+                        m.last=now; m.directions=[0,0]; m.input_at=[now,now]
+                return self.view(cid)
             if m.status=='active':
                 if action=='resign': m.finish('Игрок сдался.',cid)
                 elif m.kind=='chess' and action=='move':
