@@ -16,10 +16,11 @@ EVENTS = [
     ('chess','Шахматы · 1 на 1',0,'Мини-игры'), ('ai','Убеди ИИ — растущий накал',60,'Мини-игры'),
     ('upgrader','Апгрейдер · шанс на иммунитет',7,'Мини-игры'),
     ('music','Музыка',60,'Медиа'), ('bw','Чёрно-белый экран',60,'Экран'),
+    ('qwedf','Клавиши Q → W → E → D → F',0,'Игра'),
 ]
 EVENT_IDS = {e[0] for e in EVENTS}
-PROTOCOL_VERSION=6
-MIN_PROTOCOL_VERSION=6  # Both clients must support explicit match readiness.
+PROTOCOL_VERSION=7
+MIN_PROTOCOL_VERSION=7  # Smooth Pong snapshots and the Q/W/E/D/F event.
 PENALTY_SECONDS=30
 UPGRADER_FILL_SECONDS = 0.6
 UPGRADER_HOLD_SECONDS = 2.0

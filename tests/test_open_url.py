@@ -63,7 +63,7 @@ class WebsiteDeliveryTests(unittest.TestCase):
         self.sql('UPDATE clients SET immune_until=0,status=? WHERE id=?',(json.dumps({'protocol':3}),aid))
         r=self.post('/api/admin/command',{'targets':[aid],'command':payload})
         self.assertEqual(r.status_code,409)
-        self.assertIn('6',r.json['error'])
+        self.assertIn('7',r.json['error'])
         self.assertEqual(self.post('/api/admin/command',{'targets':[aid],'command':{'action':'start'}}).status_code,409)
 
     def test_invalid_and_unauthorized_commands_are_not_queued(self):

@@ -387,7 +387,7 @@ class WindowsController:
     def activate(self, kind: str, tp_key: str = "T",
                  cancel: threading.Event | None = None, duration=None) -> str:
         """Worker-thread API. No GUI calls and no blocking duration sleeps."""
-        if kind not in DURATIONS and kind not in ("kill", "buy"):
+        if kind not in DURATIONS and kind not in ("kill", "buy", "qwedf"):
             raise ValueError(f"Неизвестный эффект: {kind}")
         seconds=DURATIONS.get(kind,0) if duration is None else float(duration)
         if kind in DURATIONS and not 0<seconds<=3600:
@@ -399,11 +399,13 @@ class WindowsController:
         if kind == "kill":
             kind, seconds = "both", PENALTY_SECONDS
         target = self._target() or Target(0, 0, 0, "desktop")
-        if kind in ("tp", "buy"):
+        if kind in ("tp", "buy", "qwedf"):
             target = self._game_window()
             self._focus_window(target, cancel)
         if kind == "buy":
             return self._buy_scrolls(target, cancel)
+        if kind == "qwedf":
+            return self._press_game_sequence(target, cancel)
         if kind == "invert":
             point = W.POINT()
             if not self.user.GetCursorPos(C.byref(point)):
@@ -439,6 +441,20 @@ class WindowsController:
         return {"swap": "Кнопки мыши поменяны", "invert": "Обе оси курсора инвертированы",
                 "keyboard": "Клавиатура заблокирована", "mouse": "Мышь заблокирована",
                 "both": "Клавиатура и мышь заблокированы"}[kind]+f' на {seconds:g} с.'
+
+    def _press_game_sequence(self, target: Target, cancel: threading.Event) -> str:
+        self._call(self._release)
+        for index, key in enumerate('QWEDF'):
+            if cancel.is_set() or self.panic.is_set() or not self._matches(target):
+                raise RuntimeError('Последовательность отменена: остановка или смена окна.')
+            # Avoid shortcuts or releasing a key the player is holding physically.
+            if any(self.user.GetAsyncKeyState(vk) & 0x8000
+                   for vk in (0x10, 0x11, 0x12, 0x5B, 0x5C, ord(key))):
+                raise RuntimeError('Отпустите модификаторы и клавиши Q W E D F; событие отменено.')
+            self._tap_key(ord(key))
+            if index<4 and cancel.wait(.12):
+                raise RuntimeError('Последовательность отменена.')
+        return 'Нажаты по очереди: Q → W → E → D → F.'
 
     def _tap_key(self, keycode: int) -> None:
         events = (Input * 2)()

@@ -28,7 +28,7 @@ class PenaltyServerTests(unittest.TestCase):
         self.post('/api/admin/command',{'targets':[aid,bid],'command':{'action':'event','event':'chess'}})
         self.post('/api/admin/command',{'targets':[aid],'command':{'action':'event','event':'kill'}})
         r=a.post('/api/client/poll',headers=ha,json={'session_id':sa,'status':{'protocol':4}})
-        self.assertEqual(r.status_code,409); self.assertIn('V6',r.json['error'])
+        self.assertEqual(r.status_code,409); self.assertIn('V7',r.json['error'])
         self.assertEqual(self.sql('SELECT session_id FROM clients WHERE id=?',(aid,))[0][0],'')
         self.assertEqual(a.post('/api/client/match',headers=ha,json={'session_id':sa}).status_code,409)
         self.assertEqual(self.sql("SELECT count(*) FROM commands WHERE client_id=? AND status='queued'",(aid,))[0][0],0)

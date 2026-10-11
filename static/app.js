@@ -4,7 +4,7 @@ let snapshot=null, initialized=false, pending=false, refreshing=false;
 const csrf=document.querySelector('meta[name="csrf-token"]').content;
 const names={start:'Запустить таймер',stop:'Снять эффекты',spin:'Крутить рулетку',settings:'Настройки',capture_shop:'Запомнить ТП',choose_video:'Выбрать видео',choose_music:'Добавить музыку',music_volume:'Громкость музыки',preview_video:'Предпросмотр видео',open_url:'Открыть сайт'};
 const states={queued:'Ожидает',delivered:'Доставлена',accepted:'Принята',rejected:'Отклонена',expired:'Истекла',superseded:'Заменена'};
-const icons={swap:'⇄',invert:'↔',tp:'⌂',window:'▣',video:'▶',keyboard:'⌨',mouse:'◉',both:'⊘',kill:'×',buy:'＋',reverse:'↻',cmd:'>_',monitor:'▰',pong:'Ⅱ',desktop:'▤',cubes:'◆',chess:'♞',ai:'✦',upgrader:'↗',music:'♫',bw:'◐'};
+const icons={swap:'⇄',invert:'↔',tp:'⌂',window:'▣',video:'▶',keyboard:'⌨',mouse:'◉',both:'⊘',kill:'×',buy:'＋',reverse:'↻',cmd:'>_',monitor:'▰',pong:'Ⅱ',desktop:'▤',cubes:'◆',chess:'♞',ai:'✦',upgrader:'↗',music:'♫',bw:'◐',qwedf:'⌨'};
 function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,5500);}
 async function api(url,data){const r=await fetch(url,{method:data===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:data===undefined?undefined:JSON.stringify(data)});const result=await r.json();if(r.status===401){location.href='/login';throw Error('Сеанс завершён.');}if(!r.ok)throw Error(result.error||'Ошибка запроса.');return result;}
@@ -42,7 +42,7 @@ function eventControls(events){for(const e of events){const card=node('article',
  button.onclick=()=>{const command={action:'event',event:e.id};if(e.limits){const input=card.querySelector('[data-duration]');if(!input.reportValidity())return;command.duration=Number(input.value);if(!Number.isInteger(command.duration))return toast('Введите целое число секунд.');}if(e.id==='music'){command.track=$('musicTrack').value;command.volume=Number($('musicVolume').value);}if(e.id==='upgrader'){if(!$('upgraderChanceNumber').reportValidity())return;command.chance=Number($('upgraderChanceNumber').value);}send(command);};
  foot.append(button);card.append(foot);$('events').append(card);
  const label=node('label'),box=node('input');box.type='checkbox';box.dataset.enabled=e.id;label.append(box,document.createTextNode(e.title));$('enabledEvents').append(label);
- }$('eventCount').textContent=`${events.length} событие`;}
+ }$('eventCount').textContent=`Событий: ${events.length}`;}
 function render(data){snapshot=data;const online=data.clients.filter(c=>c.online);$('onlineCount').textContent=online.length;
  for(const id of selected)if(!online.some(c=>c.id===id))selected.delete(id);
  const list=$('players');list.replaceChildren();for(const c of data.clients.filter(c=>!c.revoked)){

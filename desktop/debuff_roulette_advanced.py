@@ -75,6 +75,7 @@ EFFECTS = (
     Effect("upgrader", "Апгрейдер", "АПГРЕЙДЕР", 7, "#c44883"),
     Effect("music", "Музыка", "МУЗЫКА", 60, "#328b85"),
     Effect("bw", "Чёрно-белый экран", "ЧБ ЭКРАН", 60, "#697384"),
+    Effect("qwedf", "Клавиши Q → W → E → D → F", "Q W E\nD F", 0, "#bb793b"),
 )
 
 WHEEL_LABELS = {'swap':'Кнопки', 'invert':'Инверсия', 'tp':'ТП на базу',
@@ -83,7 +84,7 @@ WHEEL_LABELS = {'swap':'Кнопки', 'invert':'Инверсия', 'tp':'ТП �
                 'buy':'Купить ТП', 'reverse':'Переворот', 'cmd':'Консоль',
                 'monitor':'Монитор', 'pong':'Пинг-понг', 'desktop':'Стол 2',
                 'cubes':'Кубы', 'chess':'Шахматы', 'ai':'Убеди ИИ',
-                'upgrader':'Апгрейдер', 'music':'Музыка', 'bw':'ЧБ экран'}
+                'upgrader':'Апгрейдер', 'music':'Музыка', 'bw':'ЧБ экран', 'qwedf':'Q W E D F'}
 
 
 def bundled_video() -> Path:

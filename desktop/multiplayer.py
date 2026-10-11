@@ -6,25 +6,33 @@ from PyQt6.QtGui import QPainter,QColor,QPen,QFont
 from PyQt6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,QComboBox
 from challenge_base import ChallengeWindow
 from chess_event import BoardView
+from pong_motion import PongTimeline,blend_correction
 
 class PongView(QWidget):
     def __init__(self):
         super().__init__(); self.snapshot=None; self.received=0; self.side=0
         self.local_y=None; self.direction=0; self.predicted_at=time.monotonic()
         self.playing=False
+        self.timeline=PongTimeline(); self.correction=0; self.last_input_sequence=-1
         self.setMinimumSize(180,100)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     def predict(self):
         now=time.monotonic(); dt=min(.1,max(0,now-self.predicted_at)); self.predicted_at=now
         if self.playing and self.local_y is not None:
-            self.local_y=min(400,max(50,self.local_y+self.direction*320*dt))
+            correction=blend_correction(self.correction,dt)
+            self.correction-=correction
+            self.local_y=min(400,max(50,self.local_y+self.direction*320*dt+correction))
     def set_direction(self,direction):
-        self.predict(); self.direction=direction; self.update()
+        self.predict(); self.direction=direction; self.correction=0; self.update()
     def receive_snapshot(self,state,elapsed=0):
         self.predict(); self.snapshot=state; self.received=time.monotonic()
-        target=min(400,max(50,state['paddles'][self.side]+self.direction*320*min(.25,elapsed/2)))
-        if self.local_y is None or abs(target-self.local_y)>120: self.local_y=target
-        else: self.local_y+=(target-self.local_y)*(.2 if self.direction else .5)
+        target=state['paddles'][self.side]
+        if self.local_y is None or not self.playing:
+            self.local_y=target; self.correction=0
+        elif state.get('sequence',[-1,-1])[self.side]>=self.last_input_sequence:
+            target+=self.direction*320*min(.3,elapsed/2)
+            self.correction=min(400,max(50,target))-self.local_y
+        if self.playing: self.timeline.receive(state.get('history',[]),self.received)
     def paintEvent(self,event):
         self.predict()
         p=QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -32,15 +40,15 @@ class PongView(QWidget):
         p.scale(self.width()/800,self.height()/450)
         p.setPen(QPen(QColor('#303e58'),2,Qt.PenStyle.DashLine)); p.drawLine(400,0,400,450)
         if not self.snapshot: return
-        state=self.snapshot; dt=min(.12,max(0,time.monotonic()-self.received)) if self.playing else 0
+        state=self.snapshot
+        pose=self.timeline.draw(time.monotonic()) if self.playing else None
         p.setPen(Qt.PenStyle.NoPen)
         for i,x in enumerate((18,770)):
             p.setBrush(QColor('#b8f36c' if i==self.side else '#c8a6ff'))
-            y=self.local_y if i==self.side and self.local_y is not None else state['paddles'][i]
+            y=self.local_y if i==self.side and self.local_y is not None else pose[2+i] if pose else state['paddles'][i]
             p.drawRoundedRect(QRectF(x,y-50,12,100),5,5)
         p.setBrush(QColor('#ffffff'))
-        # Small extrapolation hides polling jitter; authoritative state wins.
-        x=min(800,max(0,state['x']+state['vx']*dt)); y=min(442,max(8,state['y']+state['vy']*dt))
+        x,y=pose[:2] if pose else (state['x'],state['y'])
         p.drawEllipse(QRectF(x-8,y-8,16,16))
 
 class Multiplayer(ChallengeWindow):
@@ -79,9 +87,11 @@ class Multiplayer(ChallengeWindow):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         # Space/arrow events also reach the game while a child has focus.
         for widget in [self,*self.findChildren(QWidget)]: widget.installEventFilter(self)
-        self.network_timer=QTimer(self); self.network_timer.setInterval(70 if self.kind=='pong' else 300)
+        self.network_timer=QTimer(self); self.network_timer.setInterval(50 if self.kind=='pong' else 300)
+        self.network_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.network_timer.timeout.connect(self.send_state)
         self.timer.setInterval(16)
+        self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.receive(state)
     def start(self):
         self.open_window(); self.setFocus(); self.timer.start(); self.network_timer.start(); self.send_state()
@@ -89,6 +99,8 @@ class Multiplayer(ChallengeWindow):
         if self.done or not state or state['id']!=self.match_id: return
         if self.state and state['revision']<self.state['revision']: return
         if self.kind=='pong' and state['status']!='ended' and state['frame']<self.frame: return
+        if (self.kind=='pong' and self.state and self.state['status']==state['status']=='active'
+                and state['frame']==self.frame): return
         self.state=state; self.frame=state['frame']
         if state['status']=='ended':
             result='loss' if state['loser'] is True else 'win' if state['loser'] is False else 'cancel'
@@ -119,6 +131,7 @@ class Multiplayer(ChallengeWindow):
         if self.done or (self.pending and not force_input) or not self.link.active: return
         if not force_input: self.pending=True
         self.sequence+=1
+        if force_input and self.kind=='pong': self.view.last_input_sequence=self.sequence
         payload={'session_id':self.link.session_id,'id':self.match_id,'action':'state',
                  'direction':self.direction,'sequence':self.sequence}
         if self.scheduled_move:

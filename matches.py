@@ -1,5 +1,6 @@
 """Authoritative two-player games. Disconnect/cancel is never a defeat."""
 from dataclasses import dataclass,field
+from collections import deque
 import math
 import random
 import secrets
@@ -31,6 +32,7 @@ class Match:
     directions:list=field(default_factory=lambda:[0,0])
     input_at:list=field(default_factory=lambda:[0.0,0.0])
     sequence:list=field(default_factory=lambda:[-1,-1])
+    history:deque=field(default_factory=lambda:deque(maxlen=180))
     def finish(self,reason,loser=None):
         if self.status=='ended': return
         self.status='ended'; self.reason=reason; self.loser=loser; self.ended=time.monotonic(); self.revision+=1
@@ -98,6 +100,8 @@ class MatchHub:
                 m.x=2*boundary-m.x
                 speed=min(460,math.hypot(m.vx,m.vy)+12); angle=(m.y-m.paddles[side])/58*.9
                 m.vx=(1 if side==0 else -1)*speed*math.cos(angle); m.vy=speed*math.sin(angle)
+            # Include substeps: clients can replay bounces smoothly between replies.
+            m.history.append((step_time,m.x,m.y,*m.paddles))
             if m.x< -8 or m.x>808:
                 m.finish('Пропущен мяч. Матч завершён.',m.players[0 if m.x<0 else 1])
     def view(self,cid):
@@ -109,7 +113,9 @@ class MatchHub:
                     'players':list(m.names),'side':i,'loser':m.loser==cid if m.loser else None,'frame':m.last,
                     'ready':[player in m.ready for player in m.players],
                     'fen':m.board.fen() if m.kind=='chess' else None,
-                    'pong':{'x':m.x,'y':m.y,'vx':m.vx,'vy':m.vy,'paddles':m.paddles.copy()}}
+                    'pong':{'x':m.x,'y':m.y,'vx':m.vx,'vy':m.vy,'paddles':m.paddles.copy(),
+                            'sequence':m.sequence.copy(),'directions':m.directions.copy(),
+                            'history':list(m.history)}}
     def action(self,cid,mid,data):
         with self.lock:
             m=self.current(cid)
@@ -124,6 +130,7 @@ class MatchHub:
                     if len(m.ready)==2:
                         m.status='active'; m.reason='Оба игрока готовы. Матч начался.'
                         m.last=now; m.directions=[0,0]; m.input_at=[now,now]
+                        m.history.append((now,m.x,m.y,*m.paddles))
                 return self.view(cid)
             if m.status=='active':
                 if action=='resign': m.finish('Игрок сдался.',cid)

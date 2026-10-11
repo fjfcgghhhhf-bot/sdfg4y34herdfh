@@ -46,7 +46,8 @@ class ReadyServerTests(unittest.TestCase):
                 self.assertEqual(state['status'], 'active')
                 self.assertEqual(state['ready'], [True, True])
                 self.assertEqual(state['fen'], initial['fen'])
-                self.assertEqual(state['pong'], initial['pong'])
+                for key in ('x','y','paddles','directions','sequence'):
+                    self.assertEqual(state['pong'][key], initial['pong'][key])
                 self.assertEqual(hub.current('a').directions, [0, 0])
 
     def test_wait_has_no_deadline_while_connected_and_disconnect_has_no_loser(self):

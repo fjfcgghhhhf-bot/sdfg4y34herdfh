@@ -94,6 +94,24 @@ class PvpInputTests(unittest.TestCase):
         self.app.sendEvent(w,QEvent(QEvent.Type.WindowDeactivate))
         self.assertEqual(w.direction,0); self.assertEqual(link.requests[-1][0]['direction'],0)
 
+    def test_pong_delayed_ack_does_not_snap_local_paddle(self):
+        w,link,hub,mid=self.window('pong')
+        QTest.keyPress(w.view,Qt.Key.Key_Down)
+        with patch('multiplayer.time.monotonic',return_value=w.view.predicted_at+.1): w.view.predict()
+        before=w.view.local_y
+        stale=copy.deepcopy(hub.view('a')['pong']); stale['paddles'][0]=100
+        w.view.receive_snapshot(stale,.3)
+        self.assertGreaterEqual(w.view.local_y,before)
+        self.assertEqual(w.view.correction,0)
+        QTest.keyRelease(w.view,Qt.Key.Key_Down)
+        stale['sequence'][0]=w.view.last_input_sequence
+        before=w.view.local_y
+        w.view.receive_snapshot(stale,.3)
+        self.assertAlmostEqual(w.view.local_y,before,delta=.5)
+        with patch('multiplayer.time.monotonic',return_value=w.view.predicted_at+.016): w.view.predict()
+        self.assertGreater(w.view.local_y,100)
+        self.assertLess(w.view.local_y,before)
+
 class PongLatencyTests(unittest.TestCase):
     def test_delayed_tick_integrates_input_before_lease_expires(self):
         hub=MatchHub(); mid=hub.create('pong',('a','b'),('А','Б'))

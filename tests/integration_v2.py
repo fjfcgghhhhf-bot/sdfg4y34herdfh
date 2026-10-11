@@ -61,6 +61,11 @@ def main():
             until(lambda:bool(windows[0].controller.calls))
             args,kwargs=windows[0].controller.calls[-1]; assert args[:2]==('tp','T') and kwargs['duration']==11
             windows[0].controller.calls.clear()
+            command({'action':'event','event':'qwedf'},[windows[0].config['client_id']])
+            until(lambda:bool(windows[0].controller.calls))
+            args,kwargs=windows[0].controller.calls[-1]
+            assert args[0]=='qwedf' and not windows[1].controller.calls
+            windows[0].controller.calls.clear()
             assert 'bearwolf' in windows[0].tracks and windows[0].tracks['bearwolf']['path'].is_file()
             command({'action':'event','event':'music','duration':42,'track':'bearwolf','volume':27},[windows[0].config['client_id']])
             until(lambda:windows[0].music is not None and windows[0].music.started)
